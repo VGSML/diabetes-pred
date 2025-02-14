@@ -1,0 +1,12 @@
+datasets:
+  - outcomesFile: /data/vgribanov/data/a1c1/DiabetesOutcomes.txt
+    diagnosesFile: /data/vgribanov/data/a1c1/DiagnosesICD10.txt
+    proceduresFile: /data/vgribanov/data/a1c1/Procedures_NoLabs.txt
+    labsFile: /data/vgribanov/data/a1c1/Labs_numeric_lim_unicode.txt
+    diagnosesLimit: 0.01
+    proceduresLimit: 0.01
+    labsLimit: 0.01
+    useNonNumericLabs: False
+    quantizeLabs: True
+    months: 36
+    outputPath: /data/vgribanov/data/a1c1/final_data/

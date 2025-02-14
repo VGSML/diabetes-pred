@@ -1,0 +1,22 @@
+search_space:
+  lr:
+    type: loguniform
+    range: [1e-5, 1e-3]
+  batch_size:
+    type: choice
+    values: [32, 256]
+  tcn_layers:
+    type: choice
+    values:
+      - [16, 32]
+      - [32, 64, 128]
+  use_attention:
+    type: choice
+    values: [true, false]
+  dataset_path:
+    type: choice
+    values:
+      - /home/vgribanov/diabetes_pred/data/36-4-5-5
+      - /home/vgribanov/diabetes_pred/data/36-4-5-2
+      - /home/vgribanov/diabetes_pred/data/36-4-2-4
+      - /home/vgribanov/diabetes_pred/data/36-5-2-5-q
