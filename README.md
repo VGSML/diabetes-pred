@@ -83,6 +83,13 @@ $ git clone https://github.com/VGSML/diabetes-pred.git
 $ pip3 install -r diabetes-pred/requirements.txt
 ```
 
+5. Install and init wandb.ai logger (<https://wandb.ai/>):
+
+```bash
+$ pip3 install wandb
+$ wandb login
+```
+
 ## Usage
 
 ### A1C1 models
