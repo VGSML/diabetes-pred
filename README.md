@@ -111,3 +111,9 @@ $ python3 train.py --ds_path /data/vgribanov/data/a1c1/final_data --num_epochs=2
 
 ![A1C1 TCN Models Results](./a1c1_tcn_final.png)
 ![A1C1 RNN Models Results](./a1c1_rnn_final.png)
+
+To train the "risk of readmission" models, run the following command:
+```bash
+$ cd diabetes-pred/src/readmissions/
+$ python3 train.py --ds_path /data/mpetkevich/readmissions/data/final_data --num_epochs=25 --batch_size=32 --lr=0.0001 --model_type=RNN --rnn_layers=3 --rnn_hidden_dim=64  --save /data/mpetkevich/readmissions/models/final/rnn.model --run_name=final_rnn
+```
