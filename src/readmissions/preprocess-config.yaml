@@ -1,0 +1,12 @@
+datasets:
+  - outcomesFile: /data/mpetkevich/readmissions/data/DiabetesOutcomes.txt
+    diagnosesFile: /data/mpetkevich/readmissions/data/DiagnosesICD10.txt
+    proceduresFile: /data/mpetkevich/readmissions/data/Procedures_NoLabs.txt
+    labsFile: /data/mpetkevich/readmissions/data/Labs_numeric_lim_unicode.txt
+    diagnosesLimit: 0.01
+    proceduresLimit: 0.01
+    labsLimit: 0.01
+    useNonNumericLabs: False
+    quantizeLabs: True
+    months: 36
+    outputPath: /data/mpetkevich/readmissions/data/final_data/
