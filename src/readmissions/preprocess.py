@@ -29,12 +29,16 @@ class Config:
         self.dbPath = dbPath
         self.outputPath = outputPath
 
-
 def load_dataset_config(path: str):
     cc = []
 
     with open(path, 'r') as f:
         conf = yaml.safe_load(f)
+
+        #TODO: test code below.
+        #can i replace all with this code?
+        # return [Config(**c) for c in conf['datasets']]
+
         for c in conf['datasets']:
             cc.append( Config(
                 outcomesFile=c['outcomesFile'],
@@ -59,28 +63,33 @@ def process_config(path: str):
     for c in cc:
         process_data(c)
 
-
 def process_data(conf: Config):
     print('Processing data for:', vars(conf))
     dbPath = conf.dbPath if conf.dbPath else ':memory:'
     conn = duckdb.connect(dbPath)
-
     createSchema(conn)
+
+    #number of patients
     patients = fileRows(conn, conf.outcomesFile)
+
+    #load diagnoses, procedures, laboratory tests
     loadDynamicData(conn, conf.diagnosesFile,'diagnoses', conf.months, patients*conf.diagnosesLimit)
     loadDynamicData(conn, conf.proceduresFile, 'procedures', conf.months, patients*conf.proceduresLimit)
     use_labs = True if conf.labsFile else False
     if use_labs:
         loadLabs(conn, conf.labsFile, conf.months, patients*conf.labsLimit)
 
+    #Loading static data
     loadStaticData(conn, conf.outcomesFile, use_labs=use_labs)
-    makeStaticDataVocab(conn)
 
+    #Creating feature dictionaries
+    makeStaticDataVocab(conn)
     makeDynamicDataVocab(conn, 'diagnoses', 'code_with_type')
     makeDynamicDataVocab(conn, 'procedures', 'code_with_type')
     if use_labs:
         makeLabsValuesVocab(conn, conf.useNonNumericLabs, conf.quantizeLabs)
 
+    #Creating the final table
     makeDataTable(conn, conf.months)
 
     # save the processed data
