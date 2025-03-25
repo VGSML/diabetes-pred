@@ -118,7 +118,7 @@ To prepare data for the Readmissions models, should be loaded the files with sou
 
 ```bash
 $ cd /home/mpetkevich/projects/diabt/src/readmissions/
-$ python3 preprocess.py --config preprocess_config.yaml
+$ python3 preprocess.py --config preprocess-config.yaml
 ```
 
 To train the "risk of readmission" models, run the following command:

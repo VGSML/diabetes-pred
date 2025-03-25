@@ -1,33 +1,52 @@
 import duckdb
-import pandas as pd
 import pathlib
 import yaml
+import argparse
+import os
+import sys
 
 class Config:
-    def __init__(self, outcomesFile: str = 'diabetes_pred/data/DiabetesOutcomes.txt',
-                 diagnosesFile: str = 'diabetes_pred/data/DiagnosesICD10.txt',
-                 proceduresFile: str = 'diabetes_pred/data/ProceduresICD10.txt',
-                 labsFile: str = 'diabetes_pred/data/Labs_numeric_lim_unicode.txt',
-                 diagnosesLimit: float = 0.04,
-                 proceduresLimit: float = 0.05,
-                 labsLimit: float = 0.05,
-                 useNonNumericLabs: bool = False,
-                 quantizeLabs: bool = False,
-                 months: int = 36,
-                 dbPath: str = 'diabetes_pred/data/process.duckdb',
-                 outputPath: str = 'diabetes_pred/data/processed/'):
-        self.outcomesFile = outcomesFile
-        self.diagnosesFile = diagnosesFile
-        self.proceduresFile = proceduresFile
-        self.labsFile = labsFile
-        self.diagnosesLimit = diagnosesLimit
-        self.proceduresLimit = proceduresLimit
-        self.labsLimit = labsLimit
-        self.useNonNumericLabs = useNonNumericLabs
-        self.quantizeLabs = quantizeLabs
-        self.months = months
-        self.dbPath = dbPath
-        self.outputPath = outputPath
+    def __init__(self,
+                 data_path: str = '/data/vgribanov/data/readm/',
+                 inpatient_file: str = 'Inpatient_Static_hosp11.txt',
+                 labs_file: str = 'Labs_hours.txt',
+                 vitals_dbp_file: str = 'Vitals_DBP_hours.txt',
+                 vitals_o2_device_file: str = 'Vitals_O2Device_hours.txt',
+                 o2_device_mapping_file: str = 'o2device_mapping.csv',
+                 vitals_pulse_file: str = 'Vitals_Pulse_hours.txt',
+                 vitals_resp_rate_file: str = 'Vitals_RespRate_hours.txt',
+                 vitals_sbp_file: str = 'Vitals_SBP_hours.txt',
+                 vitals_sp_o2_file: str = 'Vitals_SpO2_hours.txt',
+                 vitals_temp_file: str = 'Vitals_Temp_hours.txt',
+                 diagnoses_file: str = 'Diagnoses_hours.txt',
+                 procedures_file: str = 'Procedures_hours_unicode.txt',
+                 medications_file: str = 'Medications_hours_unicode.txt',
+                 diagnoses_limit: float = 0.01,
+                 procedures_limit: float = 0.01,
+                 labs_limit: float = 0.01,
+                 medications_limit: float = 0.01,
+                 db_path: str = 'diabetes_pred/data/process.duckdb',
+                 output_path: str = 'diabetes_pred/data/processed/'):
+        self.data_path = data_path
+        self.inpatient_file = self.data_path + inpatient_file
+        self.labs_file = self.data_path + labs_file
+        self.vitals_dbp_file = self.data_path + vitals_dbp_file
+        self.vitals_o2_device_file = self.data_path + vitals_o2_device_file
+        self.o2_device_mapping_file = self.data_path + o2_device_mapping_file
+        self.vitals_pulse_file = self.data_path + vitals_pulse_file
+        self.vitals_resp_rate_file = self.data_path + vitals_resp_rate_file
+        self.vitals_sbp_file = self.data_path + vitals_sbp_file
+        self.vitals_sp_o2_file = self.data_path + vitals_sp_o2_file
+        self.vitals_temp_file = self.data_path + vitals_temp_file
+        self.diagnoses_file = self.data_path + diagnoses_file
+        self.procedures_file = self.data_path + procedures_file
+        self.medications_file = self.data_path + medications_file
+        self.diagnoses_limit = diagnoses_limit
+        self.procedures_limit = procedures_limit
+        self.labs_limit = labs_limit
+        self.medications_limit = medications_limit
+        self.db_path = db_path
+        self.output_path = output_path
 
 def load_dataset_config(path: str):
     cc = []
@@ -35,105 +54,108 @@ def load_dataset_config(path: str):
     with open(path, 'r') as f:
         conf = yaml.safe_load(f)
 
-        #TODO: test code below.
-        #can i replace all with this code?
-        # return [Config(**c) for c in conf['datasets']]
-
         for c in conf['datasets']:
-            cc.append( Config(
-                outcomesFile=c['outcomesFile'],
-                diagnosesFile=c['diagnosesFile'],
-                proceduresFile=c['proceduresFile'],
-                labsFile=c.get('labsFile'),
-                diagnosesLimit=c['diagnosesLimit'],
-                proceduresLimit=c['proceduresLimit'],
-                labsLimit=c.get('labsLimit'),
-                useNonNumericLabs=c['useNonNumericLabs'],
-                quantizeLabs=c['quantizeLabs'],
-                months=c['months'],
-                dbPath=c.get('dbPath'),
-                outputPath=c['outputPath']
+            cc.append(Config(
+                data_path=c['data_path'],
+                inpatient_file=c['inpatient_file'],
+                labs_file=c['labs_file'],
+                vitals_dbp_file=c['vitals_dbp_file'],
+                vitals_o2_device_file=c['vitals_o2_device_file'],
+                o2_device_mapping_file=c['o2_device_mapping_file'],
+                vitals_pulse_file=c['vitals_pulse_file'],
+                vitals_resp_rate_file=c['vitals_resp_rate_file'],
+                vitals_sbp_file=c['vitals_sbp_file'],
+                vitals_sp_o2_file=c['vitals_sp_o2_file'],
+                vitals_temp_file=c['vitals_temp_file'],
+                diagnoses_file=c['diagnoses_file'],
+                procedures_file=c['procedures_file'],
+                medications_file=c['medications_file'],
+                diagnoses_limit=c['diagnoses_limit'],
+                procedures_limit=c['procedures_limit'],
+                labs_limit=c['labs_limit'],
+                medications_limit=c.get('medications_limit'),
+                db_path=c.get('db_path'),
+                output_path=c['output_path']
             ))
 
     return cc
 
-def process_config(path: str):
-    cc = load_dataset_config(path)
-
-    for c in cc:
-        process_data(c)
-
 def process_data(conf: Config):
     print('Processing data for:', vars(conf))
-    dbPath = conf.dbPath if conf.dbPath else ':memory:'
-    conn = duckdb.connect(dbPath)
-    createSchema(conn)
+    db_path = conf.db_path if conf.db_path else ':memory:'
+    conn = duckdb.connect(db_path)
+    create_schema(conn)
 
-    #number of patients
-    patients = fileRows(conn, conf.outcomesFile)
+    print('🛠 Processing load_raw_inpatient_data')
+    load_raw_inpatient_data(conn, conf.inpatient_file, 'raw_inpatient');
 
-    #load diagnoses, procedures, laboratory tests
-    loadDynamicData(conn, conf.diagnosesFile,'diagnoses', conf.months, patients*conf.diagnosesLimit)
-    loadDynamicData(conn, conf.proceduresFile, 'procedures', conf.months, patients*conf.proceduresLimit)
-    use_labs = True if conf.labsFile else False
-    if use_labs:
-        loadLabs(conn, conf.labsFile, conf.months, patients*conf.labsLimit)
+    create_static_data_vocab(conn)
+    create_deduplicated_inpatient_table(conn)
+    create_static_feature_array(conn)
+    create_encounters_period_table(conn)
 
-    #Loading static data
-    loadStaticData(conn, conf.outcomesFile, use_labs=use_labs)
+    patients = file_rows(conn, conf.inpatient_file)
+    print('Patients rows count:', patients)
 
-    #Creating feature dictionaries
-    makeStaticDataVocab(conn)
-    makeDynamicDataVocab(conn, 'diagnoses', 'code_with_type')
-    makeDynamicDataVocab(conn, 'procedures', 'code_with_type')
-    if use_labs:
-        makeLabsValuesVocab(conn, conf.useNonNumericLabs, conf.quantizeLabs)
+    print('🛠 Processing labs')
+    load_labs(conn, conf.labs_file)
+    split_labs_values_into_groups(conn, patients * conf.labs_limit)
+    create_labs_values_vocab(conn)
+    create_labs_features(conn)
 
-    #Creating the final table
-    makeDataTable(conn, conf.months)
+    print('🛠 Processing vitals')
+    load_vitals(
+        conn,
+        conf.vitals_dbp_file,
+        conf.vitals_o2_device_file,
+        conf.o2_device_mapping_file,
+        conf.vitals_pulse_file,
+        conf.vitals_resp_rate_file,
+        conf.vitals_sbp_file,
+        conf.vitals_sp_o2_file,
+        conf.vitals_temp_file
+    )
+    create_vitals_values_vocab(conn)
+    create_dynamic_vitals_features(conn)
 
-    # save the processed data
-    pathlib.Path(conf.outputPath).mkdir(parents=True, exist_ok=True)
+    print('🛠 Processing diagnoses')
+    load_diagnoses(conn, conf.diagnoses_file, conf.data_path)
+    create_diagnoses_values_vocab(conn, patients * conf.diagnoses_limit)
+    create_diagnoses_features(conn)
 
-    # save vocabs
-    conn.query(f"COPY static_data_vocab TO '{pathlib.Path(conf.outputPath) / 'static_data_vocab.parquet'}' (FORMAT PARQUET);")
-    conn.query(f"COPY dynamic_data_feature_vocab TO '{pathlib.Path(conf.outputPath) / 'dynamic_data_vocab.parquet'}' (FORMAT PARQUET);")
+    print('🛠 Processing procedures')
+    load_procedures(conn, conf.procedures_file)
+    create_procedures_values_vocab(conn, patients * conf.procedures_limit)
+    create_procedures_features(conn)
 
-    # save the processed data
-    conn.query(f"""
-        COPY (SELECT * FROM data ORDER BY idx)
-        TO '{pathlib.Path(conf.outputPath) / 'data.parquet'}' (FORMAT PARQUET);
-    """)
-    conn.query(f"""
-        COPY (
-            SELECT data.idx, subjects.id, outcomes.a1_greater_7
-            FROM subjects
-                INNER JOIN outcomes ON subjects.study_id = outcomes.study_id
-                INNER JOIN data ON subjects.id = data.id
-            ORDER BY data.idx
-        ) TO '{pathlib.Path(conf.outputPath) / 'target.parquet'}' (FORMAT PARQUET);
-    """)
+    print('🛠 Processing medications')
+    load_medications(conn, conf.medications_file)
+    create_medications_values_vocab(conn, patients * conf.medications_limit)
+    create_medications_features(conn)
 
+    print('🛠 Processing create_dynamic_features_arrays')
+    create_dynamic_features_arrays(conn)
+
+    print('🛠 Save the processed data')
+    pathlib.Path(conf.output_path).mkdir(parents=True, exist_ok=True)
+
+    print('🛠 Save vocabs')
+    save_static_data_vocab(conn, conf.output_path)
+    save_dynamic_data_vocab(conn, conf.output_path)
+
+    print('🛠 Save the processed data to parquet file')
+    save_data(conn, conf.output_path)
+    save_target(conn, conf.output_path)
+
+    print('🛠 Finishing...')
     conn.execute("VACUUM")
     conn.close()
+    print('🛠 DONE')
 
+def file_rows(conn: duckdb.DuckDBPyConnection, file_name: str):
+    return conn.sql(f"SELECT Count(*) FROM read_csv('{file_name}', delim='|', header=TRUE, ignore_errors=TRUE)").fetchone()[0]
 
-def fileRows(conn: duckdb.DuckDBPyConnection, file_name: str):
-    return conn.sql(f"SELECT Count(*) FROM read_csv('{file_name}', delim='|', header=TRUE)").fetchone()[0]
-
-def createSchema(conn: duckdb.DuckDBPyConnection):
-    # subjects
-    conn.query(f"DROP SEQUENCE IF EXISTS subjects_id_seq CASCADE;")
-    conn.query(f"CREATE SEQUENCE subjects_id_seq;")
-    conn.query(f"DROP TABLE IF EXISTS subjects;")
-    conn.query(f"""
-        CREATE TABLE IF NOT EXISTS subjects (
-            id INTEGER PRIMARY KEY DEFAULT nextval('subjects_id_seq'),
-            study_id VARCHAR NOT NULL,
-            UNIQUE(study_id)
-        );
-    """)
-
+def create_schema(conn: duckdb.DuckDBPyConnection):
     # static data vocab
     conn.query(f"DROP SEQUENCE IF EXISTS static_data_vocab_id_seq CASCADE;")
     conn.query(f"CREATE SEQUENCE static_data_vocab_id_seq;")
@@ -141,404 +163,714 @@ def createSchema(conn: duckdb.DuckDBPyConnection):
     conn.query(f"""
         CREATE TABLE IF NOT EXISTS static_data_vocab (
             id INTEGER PRIMARY KEY DEFAULT nextval('static_data_vocab_id_seq'),
-            type VARCHAR NOT NULL,
-            value VARCHAR NOT NULL,
-            lower_bound FLOAT NOT NULL DEFAULT 0,
-            upper_bound FLOAT NOT NULL DEFAULT 0,
-            subjects_count INTEGER DEFAULT 0,
-            UNIQUE(type, value)
+            type VARCHAR,
+            description VARCHAR,
+            code VARCHAR,
+            lower_value FLOAT DEFAULT 0,
+            upper_value FLOAT DEFAULT 0,
+            encounters BIGINT
         );
     """)
     # dynamic data vocab
-    conn.query(f"DROP SEQUENCE IF EXISTS dynamic_data_feature_vocab_id_seq CASCADE;")
-    conn.query(f"CREATE SEQUENCE dynamic_data_feature_vocab_id_seq;")
-    conn.query(f"DROP TABLE IF EXISTS dynamic_data_feature_vocab;")
+    conn.query(f"DROP SEQUENCE IF EXISTS dynamic_data_vocab_id_seq CASCADE;")
+    conn.query(f"CREATE SEQUENCE dynamic_data_vocab_id_seq;")
+    conn.query(f"DROP TABLE IF EXISTS dynamic_data_vocab;")
     conn.query(f"""
-        CREATE TABLE IF NOT EXISTS dynamic_data_feature_vocab (
-            id INTEGER PRIMARY KEY DEFAULT nextval('dynamic_data_feature_vocab_id_seq'),
-            type VARCHAR NOT NULL,
-            code VARCHAR NOT NULL,
-            text_res VARCHAR NOT NULL DEFAULT '',
-            lower_bound FLOAT NOT NULL DEFAULT 0,
-            upper_bound FLOAT NOT NULL DEFAULT 0,
-            avg_value FLOAT NOT NULL DEFAULT 0,
-            stddev FLOAT NOT NULL DEFAULT 0,
-            event_count INTEGER DEFAULT 0,
-            subjects_count INTEGER DEFAULT 0,
-            UNIQUE(type, code, text_res)
+        CREATE TABLE IF NOT EXISTS dynamic_data_vocab (
+            id INT PRIMARY KEY DEFAULT nextval('dynamic_data_vocab_id_seq'),
+            type VARCHAR,
+            description VARCHAR,
+            code VARCHAR,
+            value_group INT,
+            lower_value FLOAT DEFAULT 0,
+            upper_value FLOAT DEFAULT 0,
+            encounters BIGINT
         );
     """)
 
-def loadStaticData(conn: duckdb.DuckDBPyConnection, file_path: str, use_labs=False):
-    conn.query(f"DROP TABLE IF EXISTS outcomes;")
-    if use_labs:
-        conn.query(f"""
-            INSERT INTO subjects (study_id)
-            SELECT DISTINCT study_id
-            FROM diagnoses
-                INNER JOIN procedures USING (study_id)
-                INNER JOIN labs USING (study_id)
-        """)
-    else:
-        conn.query(f"""
-            INSERT INTO subjects (study_id)
-            SELECT DISTINCT study_id
-            FROM diagnoses
-                    INNER JOIN procedures USING (study_id)
-        """)
-    conn.query(f"""
-        CREATE TABLE outcomes AS
-        SELECT
-            data.StudyID AS study_id,
-            data.IndexDate::TIMESTAMP AS index_date,
-            data.InitialA1c AS initial_a1c,
-            data.A1cGreaterThan7 AS a1_greater_7,
-            data.Female AS female,
-            data.Married AS married,
-            data.GovIns AS gov_ins,
-            data.English AS english,
-            data.AgeYears AS age_years, 
-            data.SDI_score AS sdi_score,
-            data.Veteran AS veteran,
-            data.DaysFromIndexToInitialA1cDate AS days_to_initial_a1c_date,
-            data.DaysFromIndexToA1cDateAfter12Months AS days_to_a1c_after_12_months, 
-            data.DaysFromIndexToFirstEncounterDate AS days_to_first_encounter_date,
-            data.DaysFromIndexToLastEncounterDate AS days_to_last_encounter_date,
-            data.DaysFromIndexToLatestDate AS days_to_latest_date,
-            data.DaysFromIndexToPatientTurns18 AS days_to_patient_turns_18
-        FROM read_csv('{file_path}', delim='|', header=TRUE) AS data
-            INNER JOIN subjects ON data.StudyID = subjects.study_id;
-    """)
-
-def makeStaticDataVocab(conn: duckdb.DuckDBPyConnection):
-    conn.sql("""
-        WITH data AS (
-            SELECT study_id, index_date, column_name, value, 1 AS subject_count
-            FROM outcomes
-            UNPIVOT(value FOR column_name IN (initial_a1c, a1_greater_7, female, married, gov_ins, english, age_years, sdi_score, veteran))
-        ), binary_features AS (
-            SELECT column_name, value, SUM(subject_count) AS subject_count
-            FROM data
-            WHERE column_name IN ('female', 'married', 'gov_ins', 'english', 'veteran')
-            GROUP BY column_name, value
-            ORDER BY column_name, value
-        ), numeric_values AS (
-            SELECT
-                column_name,
-                ntile(10) OVER (PARTITION BY column_name ORDER BY value) AS value_quantile,
-                value,
-                subject_count
-            FROM data
-            WHERE column_name IN ('initial_a1c', 'age_years', 'sdi_score')
-        ), numeric_features AS (
-            SELECT 
-                column_name,
-                min(value) AS lower_bound,
-                max(value) AS upper_bound,
-                printf('%d %.1f-%.1f', value_quantile, lower_bound::float, upper_bound::float) AS value,
-                SUM(subject_count) AS subject_count
-            FROM numeric_values
-            GROUP BY column_name, value_quantile
-            ORDER BY column_name, value_quantile
-        ), union_data AS (
-            SELECT column_name, value, lower_bound, upper_bound, subject_count
-            FROM numeric_features
-            UNION
-            SELECT column_name, value::VARCHAR, value, value, subject_count
-            FROM binary_features
-        )
-        INSERT INTO static_data_vocab (type, value, lower_bound, upper_bound, subjects_count)
-        SELECT column_name, value, lower_bound, upper_bound, subject_count
-        FROM union_data
-        ORDER BY column_name, lower_bound;
-    """)
-
-def loadDynamicData(conn: duckdb.DuckDBPyConnection, file_path: str, table_name: str, limit_months=36, limit_count=0):
+def load_raw_inpatient_data(conn: duckdb.DuckDBPyConnection, file_path: str, table_name: str):
     conn.query(f"DROP TABLE IF EXISTS {table_name};")
     conn.query(f"""
         CREATE TABLE {table_name} AS
         WITH data AS (
             SELECT 
-                StudyID AS study_id, 
-                Date::TIMESTAMP AS event_date, 
-                (
-                    extract('month' from IndexDate::TIMESTAMP) - extract('month' from Date::TIMESTAMP) +
-                    12*(extract('year' from IndexDate::TIMESTAMP) - extract('year' from Date::TIMESTAMP))
-                )::INTEGER AS month, 
-                Code AS code, 
-                Code_Type AS code_type, 
-                IndexDate::TIMESTAMP AS index_date, 
-                CodeWithType as code_with_type,
-                COUNT(DISTINCT study_id) OVER (PARTITION BY code_with_type) AS subject_count
-            FROM read_csv('{file_path}', delim='|', header=TRUE) 
-            WHERE 
-                (IndexDate::TIMESTAMP - Date::TIMESTAMP BETWEEN INTERVAL '1 month' AND INTERVAL '{limit_months} months' OR {limit_months} = 0)
+                StudyID AS patient_id,
+                PatientEncounterID AS encounter_id,
+                HospitalAdmitDTS AS admitted,
+                HospitalDischargeDTS AS discharged,
+                HospitalServiceCD AS service_id,
+                HospitalServiceDSC AS service_desc,
+                DischargeCategory AS disposition_desc,
+                MeansOfArrivalCD AS ma_id,
+                MeansOfArrivalDSC AS ma_desc,
+                IsFemale AS is_female,
+                Age AS age,
+                RaceEthnicity AS race,
+                IsMarried AS is_married,
+                SpeaksEnglish AS is_speak_english,
+                HasAtLeastSomeCollege AS is_graduated,
+                SDI_score AS sdi,
+                HasSmoked AS is_smoked,
+                CurrentlyDrinks AS is_drunk,
+                DaysFromLastHospitalization AS days_from_last,
+                Within30 AS in_30,
+                AnyICU AS was_in_icu,
+                LastDepartment AS last_department
+            FROM read_csv('{file_path}', 
+                  delim='|', 
+                  header=TRUE, 
+                  types={{'EmergencyAdmitDTS': 'VARCHAR'}}, 
+                  ignore_errors=TRUE)
         )
-        SELECT * 
-        FROM data
-        WHERE (subject_count >= {limit_count} OR {limit_count} = 0);
+        SELECT * FROM data;
     """)
 
-def makeDynamicDataVocab(conn: duckdb.DuckDBPyConnection, table_name: str, field_name: str):
-    conn.query(f"""
-        INSERT INTO dynamic_data_feature_vocab (type, code, event_count, subjects_count)
-        SELECT '{table_name}', {field_name}, COUNT(*) AS event_count, COUNT(DISTINCT study_id) AS subjects_count
-        FROM {table_name}
-        GROUP BY {field_name}
-        ON CONFLICT(type, code, text_res) DO 
-            UPDATE 
-                SET 
-                    event_count = event_count + excluded.event_count, 
-                    subjects_count = subjects_count + excluded.subjects_count;
-    """)
-
-def loadLabs(conn: duckdb.DuckDBPyConnection, file_path: str, limit_months=36, limit_count=0, use_df=False):
-    conn.query(f"DROP TABLE IF EXISTS labs;")
-    df = None
-    if use_df:
-        df = pd.read_csv('diabetes_pred/data/Labs.txt', sep='|', encoding='cp1252')
+def create_static_data_vocab(conn: duckdb.DuckDBPyConnection):
+    conn.sql("""
+        INSERT INTO static_data_vocab (type, description, code, encounters)
+        SELECT 'service', COALESCE(max(service_desc), 'Unknown'), COALESCE(service_id::text,'0') as service_id, count(*) as qty
+        FROM raw_inpatient
+        GROUP BY service_id
+        ORDER BY service_id;
         
-    conn.query(f"""
-        CREATE TABLE labs AS
-        WITH subjects AS (
-            SELECT DISTINCT study_id, diagnoses.index_date
-            FROM diagnoses
-                INNER JOIN procedures USING (study_id)
-        ), data AS (       
-            SELECT 
-                subjects.study_id,
-                subjects.index_date,
-                (
-                    extract('month' from subjects.index_date) - extract('month' from data.Date::TIMESTAMP) +
-                    12*(extract('year' from subjects.index_date) - extract('year' from data.Date::TIMESTAMP))
-                )::INTEGER AS month,
-                data.Date::TIMESTAMP AS event_date,
-                data.Code AS code,
-                data.Result AS result,
-                TRY_CAST(data.Result AS FLOAT) AS num_res,
-                data.Source AS source,
-                COUNT(DISTINCT study_id) OVER (PARTITION BY code, source) AS subject_count
-            FROM {"df" if use_df else f"read_csv('{file_path}', delim='|', header=TRUE, quote='', ignore_errors=true)"} AS data
-                    INNER JOIN subjects ON data.StudyID = subjects.study_id
-            WHERE 
-                (subjects.index_date - event_date BETWEEN INTERVAL '1 month' AND INTERVAL '{limit_months} months' OR {limit_months} = 0)
+        INSERT INTO static_data_vocab (type, description, code, encounters)
+        SELECT 'disposition', COALESCE(disposition_desc, 'Unknown'), COALESCE(disposition_desc,'Unknown'), count(*) as qty
+        FROM raw_inpatient
+        GROUP BY disposition_desc
+        ORDER BY disposition_desc;
+        
+        INSERT INTO static_data_vocab (type, description, code, encounters)
+        SELECT 'means_of_arrival', COALESCE(max(ma_desc), 'Unknown'), COALESCE(ma_id::text,'0'), count(*) as qty
+        FROM raw_inpatient
+        GROUP BY ma_id
+        ORDER BY ma_id;
+        
+        INSERT INTO static_data_vocab (type, description, code, encounters)
+        SELECT 'race', COALESCE(max(race), 'Unknown'), COALESCE(race::text,'Unknown'), count(*) as qty
+        FROM raw_inpatient
+        GROUP BY race
+        ORDER BY race;
+        
+        -- binary features
+        WITH data AS (
+            SELECT feature_name, value, encounter_id
+            FROM raw_inpatient
+            UNPIVOT (value FOR feature_name IN (is_married, is_speak_english, is_graduated, is_smoked, is_drunk, was_in_icu))
         )
-        SELECT
-            data.study_id,
-            data.index_date,
-            data.month,
-            max(data.event_date) AS event_date,
-            data.code,
-            data.source,
-            last(data.result ORDER BY data.event_date) AS result,
-            avg(data.num_res) AS num_res
+        INSERT INTO static_data_vocab (type, description, code, encounters)
+        SELECT feature_name, feature_name, value, count(distinct encounter_id) as qty
         FROM data
-        WHERE (subject_count > {limit_count} OR {limit_count} = 0) AND num_res IS NULL
-        GROUP BY data.study_id, data.index_date, data.month, data.code, data.source
-        UNION
-        SELECT
-            data.study_id,
-            data.index_date,
-            data.month,
-            max(data.event_date) AS event_date,
-            data.code,
-            data.source,
-            avg(data.num_res)::VARCHAR AS result,
-            avg(data.num_res) AS num_res
-        FROM data
-        WHERE (subject_count > {limit_count} OR {limit_count} = 0) AND num_res IS NOT NULL
-        GROUP BY data.study_id, data.index_date, data.month, data.code, data.source;
+        WHERE value = 1
+        GROUP BY feature_name, value;
+        
+        -- numeric features
+        WITH data AS (
+            SELECT feature_name, value, encounter_id
+            FROM raw_inpatient
+            UNPIVOT (value FOR feature_name IN (sdi, age, days_from_last))
+        ), values AS (
+            SELECT feature_name, value, encounter_id
+            FROM data
+            GROUP BY feature_name, value, encounter_id
+        ), feature_groups AS (
+            SELECT feature_name, ntile(CASE WHEN feature_name = 'age' THEN 15 ELSE 10 END) OVER (PARTITION BY feature_name ORDER BY value) as vq, value, encounter_id
+            FROM values
+        )
+        INSERT INTO static_data_vocab (type, description, code, lower_value, upper_value,  encounters)
+        SELECT 
+            feature_name, 
+            printf('%d: %s %.1f-%.1f', vq, feature_name, min(value)::float, max(value)::float), 
+            vq, min(value), max(value), count(distinct encounter_id)
+        FROM feature_groups
+        GROUP BY feature_name, vq
+        ORDER BY feature_name, vq;
     """)
 
-def makeLabsValuesVocab(conn: duckdb.DuckDBPyConnection, add_non_num=True, quantize=False):
-    if add_non_num:
-        conn.query(f"""
-            INSERT INTO dynamic_data_feature_vocab (type, code, text_res, event_count, subjects_count)
-            SELECT 
-                'labs', 
-                code, 
-                result, 
-                COUNT(*) AS event_count, 
-                COUNT(DISTINCT study_id) AS subjects_count
-            FROM labs
-            WHERE num_res IS NULL AND result IS NOT NULL
-            GROUP BY code, result
-            ON CONFLICT(type, code, text_res) DO 
-                UPDATE SET 
-                    event_count = event_count + excluded.event_count, 
-                    subjects_count = subjects_count + excluded.subjects_count;
+def create_deduplicated_inpatient_table(conn: duckdb.DuckDBPyConnection):
+    conn.sql("""
+        DROP TABLE IF EXISTS inpatient;
+        CREATE TABLE inpatient AS 
+        SELECT * EXCLUDE (prev_admitted, prev_discharged)
+        FROM (
+            WITH grouped_inpatient AS (
+                SELECT 
+                    patient_id, encounter_id, 
+                    min(admitted) AS admitted, 
+                    max(discharged) AS discharged, 
+                    LIST(DISTINCT COALESCE(service_id, 0)) AS service_ids,
+                    LIST(DISTINCT COALESCE(ma_id,0)) AS ma_ids,
+                    max(is_female) AS is_female,
+                    max(age) AS age,
+                    MIN(COALESCE(race, 'Unknown')) AS race,
+                    max(is_married) AS is_married,
+                    max(is_speak_english) AS is_speak_english,
+                    max(is_graduated) AS is_graduated,
+                    COALESCE(avg(sdi), 0) AS sdi,
+                    max(is_smoked) AS is_smoked,
+                    max(is_drunk) AS is_drunk,
+                    max(COALESCE(days_from_last,0)) AS days_from_last,
+                    max(in_30) AS in_30,
+                    max(was_in_icu) AS was_in_icu
+                FROM raw_inpatient
+                GROUP BY patient_id, encounter_id
+                ORDER BY admitted
+            )
+            SELECT *,
+                lag(admitted) OVER (ORDER BY admitted) AS prev_admitted,
+                lag(discharged) OVER (ORDER BY admitted) AS prev_discharged,
+                (admitted BETWEEN prev_admitted AND prev_discharged OR 
+                discharged BETWEEN prev_admitted AND prev_discharged) AS intersects_prev,
+                COUNT(*) OVER (
+                    PARTITION BY patient_id 
+                    ORDER BY admitted 
+                    RANGE BETWEEN unbounded preceding AND CURRENT ROW
+                ) AS encounter_num
+            FROM grouped_inpatient
+        );
     """)
-    if not quantize:
-        conn.query(f"""
-            INSERT INTO dynamic_data_feature_vocab (type, code, text_res, lower_bound, upper_bound, avg_value, stddev, event_count, subjects_count)
-            SELECT 
-                'labs', 
-                code, 
-                '', 
-                min(num_res) AS lower_bound, 
-                max(num_res) AS upper_bound,
-                avg(num_res) AS avg_value,
-                stddev(num_res) AS stddev,
-                COUNT(*) AS event_count, 
-                COUNT(DISTINCT study_id) AS subjects_count
-            FROM labs
-            WHERE num_res IS NOT NULL AND 
-                code NOT IN (
-                    SELECT code FROM labs
-                    WHERE num_res IS NULL AND result IS NOT NULL
-                )
-            GROUP BY code
-            ON CONFLICT(type, code, text_res) DO 
-                UPDATE 
-                    SET 
-                        event_count = event_count + excluded.event_count, 
-                        subjects_count = subjects_count + excluded.subjects_count;
-        """)
-        return 
 
-    conn.query(f"""
+def create_static_feature_array(conn: duckdb.DuckDBPyConnection):
+    conn.sql("""
+        DROP TABLE IF EXISTS static_features;
+        CREATE TABLE static_features AS
+        WITH binary_data AS (
+            SELECT feature_name, max(value) as value, patient_id, encounter_id
+            FROM raw_inpatient
+            UNPIVOT (value FOR feature_name IN (is_married, is_speak_english, is_graduated, is_smoked, is_drunk, was_in_icu))
+            GROUP BY ALL
+        ), binary_features AS (
+            SELECT binary_data.patient_id, binary_data.encounter_id, static_data_vocab.id
+            FROM binary_data
+                INNER JOIN static_data_vocab ON 
+                    binary_data.feature_name = static_data_vocab.type AND 
+                    binary_data.value::TEXT = static_data_vocab.code
+        ), numeric_data AS (
+            SELECT feature_name, value, patient_id, encounter_id
+            FROM raw_inpatient
+            UNPIVOT (value FOR feature_name IN (sdi, age, days_from_last))
+        ), numeric_values AS (
+            SELECT feature_name, max(value) AS value, patient_id, encounter_id
+            FROM numeric_data
+            GROUP BY ALL
+        ), numeric_features AS (
+            SELECT numeric_values.patient_id, numeric_values.encounter_id, static_data_vocab.id
+            FROM numeric_values
+                ASOF JOIN static_data_vocab 
+                    ON 
+                        numeric_values.feature_name = static_data_vocab.type AND 
+                        numeric_values.value >= static_data_vocab.lower_value
+        ), dict_data AS (
+            SELECT 
+                patient_id, encounter_id, 
+                COALESCE(service_id::TEXT, '0') AS service,
+                COALESCE(disposition_desc::TEXT, 'Unknown') AS disposition,
+                COALESCE(ma_id::TEXT, '0') AS means_of_arrival,
+                COALESCE(race, 'Unknown') AS race
+            FROM raw_inpatient
+            GROUP BY ALL
+        ), dict_values AS (
+            SELECT *
+            FROM dict_data
+            UNPIVOT (value FOR feature_name IN (service, disposition, means_of_arrival))
+        ), dict_features AS (
+            SELECT patient_id, encounter_id, static_data_vocab.id
+            FROM dict_values
+                    JOIN static_data_vocab 
+                        ON 
+                            dict_values.feature_name = static_data_vocab.type AND 
+                            dict_values.value = static_data_vocab.code
+            GROUP BY patient_id, encounter_id, static_data_vocab.id
+        )
+        SELECT patient_id, encounter_id, LIST(DISTINCT id ORDER BY id) AS features
+        FROM (
+            FROM binary_features
+            UNION ALL
+            FROM numeric_features
+            UNION ALL
+            FROM dict_features
+        )
+        GROUP BY patient_id, encounter_id;
+    """)
+
+def create_encounters_period_table(conn: duckdb.DuckDBPyConnection):
+    conn.sql("""
+        DROP TABLE IF EXISTS encounters;
+        CREATE TABLE encounters AS
+        SELECT
+            row_number() OVER () AS idx,
+            patient_id, encounter_id, 
+            min(admitted) as admitted, max(discharged) as discharged
+        FROM raw_inpatient
+        GROUP BY patient_id, encounter_id        
+    """)
+
+def load_labs(conn: duckdb.DuckDBPyConnection, file_path: str):
+    conn.sql(f"""
+        DROP TABLE IF EXISTS labs_raw;
+        CREATE TABLE labs_raw AS
+        SELECT 
+            StudyID AS patient_id, 
+            EncounterID AS encounter_id,
+            componentCommonNM AS code,
+            NVal AS value,
+            HoursSinceAdmit AS hours_since_admit
+        FROM read_csv('{file_path}', delim='|', header=TRUE);
+    """)
+
+
+def split_labs_values_into_groups(conn: duckdb.DuckDBPyConnection, labs_limit=0):
+    conn.sql(f"""
+        DROP TABLE IF EXISTS labs_values;
+        CREATE TABLE labs_values AS
         WITH data AS (
             SELECT 
-                study_id,
-                code,
-                num_res AS value,
-                ntile(10) OVER (PARTITION BY code ORDER BY num_res) AS value_quantile
-            FROM labs
-            WHERE num_res IS NOT NULL AND 
-                code NOT IN (
-                    SELECT code FROM labs
-                    WHERE num_res IS NULL AND result IS NOT NULL
-                )
+                labs_raw.patient_id,
+                labs_raw.encounter_id,
+                labs_raw.code,
+                labs_raw.value,
+                labs_raw.hours_since_admit,
+                encounters.admitted,
+                encounters.discharged,
+                (encounters.admitted + INTERVAL (labs_raw.hours_since_admit::INTEGER) HOUR) AS lab_time,
+                extract(hour from encounters.discharged - lab_time) AS hours_to_discharge,
+                COUNT(DISTINCT labs_raw.encounter_id) OVER (PARTITION BY code) AS lab_encounters_num,
+                COUNT(DISTINCT labs_raw.encounter_id) OVER () AS total_encounters_num
+            FROM labs_raw
+                INNER JOIN encounters ON 
+                    labs_raw.patient_id = encounters.patient_id AND 
+                    labs_raw.encounter_id = encounters.encounter_id
+            WHERE lab_time BETWEEN encounters.admitted AND encounters.discharged
         )
-        INSERT INTO dynamic_data_feature_vocab (type, code, text_res, lower_bound, upper_bound, event_count, subjects_count)
         SELECT 
-            'labs',
-            code, 
-            printf('%d %f - %f', value_quantile, min(value), max(value)) AS text_res,
-            min(value) AS lower_bound, 
-            max(value) AS upper_bound, 
-            COUNT(*) AS event_count,
-            COUNT(DISTINCT study_id) AS subjects_count
+            patient_id, 
+            encounter_id,
+            code,
+            value, 
+            hours_since_admit,
+            hours_to_discharge,
+            ntile(10) OVER (PARTITION BY code ORDER BY value) as value_group
         FROM data
-        GROUP BY code, value_quantile
-        ORDER BY code, value_quantile
-        ON CONFLICT(type, code, text_res) DO 
-            UPDATE 
-                SET 
-                    event_count = event_count + excluded.event_count, 
-                    subjects_count = subjects_count + excluded.subjects_count;
+        WHERE 
+            lab_encounters_num::FLOAT / total_encounters_num::FLOAT >= {labs_limit}
     """)
 
-def makeDataTable(conn: duckdb.DuckDBPyConnection, months=36):
-    conn.query(f"DROP TABLE IF EXISTS data;")
-    conn.query(f"DROP SEQUENCE IF EXISTS data_idx_seq CASCADE;")
-    conn.query(f"CREATE SEQUENCE data_idx_seq;")
-    conn.query(f"""
-        CREATE TABLE data AS
-        WITH static_features_values AS (
-            SELECT study_id, column_name, value
-            FROM outcomes
-            UNPIVOT(value FOR column_name IN (initial_a1c, female, married, gov_ins, english, age_years, sdi_score, veteran))
-        ), static AS (
-            SELECT study_id, array_agg(static_data_vocab.id ORDER BY id) as data
-            FROM static_features_values
-                ASOF JOIN static_data_vocab ON 
-                    static_features_values.column_name = static_data_vocab.type AND 
-                    static_features_values.value >= static_data_vocab.lower_bound
-            GROUP BY study_id
-        ), diag AS (
+def create_labs_values_vocab(conn: duckdb.DuckDBPyConnection):
+    conn.sql("""
+        INSERT INTO dynamic_data_vocab (type, description, code, value_group, lower_value, upper_value, encounters) 
+        SELECT 'labs', code, code, value_group, min(value), max(value), COUNT(DISTINCT encounter_id) as qty
+        FROM labs_values
+        GROUP BY code, value_group
+        ORDER BY code, value_group;
+    """)
+
+
+def create_labs_features(conn: duckdb.DuckDBPyConnection):
+    conn.sql("""
+        DROP TABLE IF EXISTS dynamic_labs_data;
+        CREATE TABLE dynamic_labs_data AS
+        SELECT patient_id, encounter_id, hours_since_admit AS period, min(dynamic_data_vocab.id) AS value
+        FROM labs_values
+                INNER JOIN dynamic_data_vocab ON 
+                    dynamic_data_vocab.type = 'labs' AND
+                    labs_values.code = dynamic_data_vocab.code AND 
+                    labs_values.value_group = dynamic_data_vocab.value_group
+        GROUP BY patient_id, encounter_id, period, labs_values.code;
+    """)
+
+def load_vitals(
+        conn: duckdb.DuckDBPyConnection,
+        vitals_dbp_file: str,
+        vitals_o2_device_file: str,
+        o2_device_mapping_file: str,
+        vitals_pulse_file: str,
+        vitals_resp_rate_file: str,
+        vitals_sbp_file: str,
+        vitals_sp_o2_file: str,
+        vitals_temp_file: str):
+    conn.sql("DROP TABLE IF EXISTS vitals_raw;")
+    conn.sql("""
+        CREATE TABLE vitals_raw (
+            patient_id VARCHAR,
+            encounter_id BIGINT,
+            type VARCHAR,
+            code VARCHAR,
+            value FLOAT,
+            hours_since_admit FLOAT
+        );
+    """)
+    conn.sql(f"""
+        INSERT INTO vitals_raw BY NAME
+        SELECT 
+            StudyID AS patient_id, 
+            EncounterID AS encounter_id,
+            'DBP' AS type,
+            'DBP' AS code,
+            MeasureTXT AS value,
+            HoursSinceAdmit AS hours_since_admit
+        FROM read_csv('{vitals_dbp_file}');
+    """)
+    conn.sql(f"""
+        INSERT INTO vitals_raw BY NAME
+        SELECT 
+            StudyID AS patient_id, 
+            EncounterID AS encounter_id,
+            'O2Device' AS type,
+            mapping.category AS code,
+            0 AS value,
+            HoursSinceAdmit AS hours_since_admit
+        FROM read_csv('{vitals_o2_device_file}') AS data
+        INNER JOIN read_csv('{o2_device_mapping_file}') AS mapping
+        ON data.MeasureTXT = mapping.description;
+    """)
+    conn.sql(f"""
+        INSERT INTO vitals_raw BY NAME
+        SELECT 
+            StudyID AS patient_id, 
+            EncounterID AS encounter_id,
+            'Pulse' AS type,
+            'Pulse' AS code,
+            MeasureTXT AS value,
+            HoursSinceAdmit AS hours_since_admit
+        FROM read_csv('{vitals_pulse_file}');
+    """)
+    conn.sql(f"""
+        INSERT INTO vitals_raw BY NAME
+        SELECT 
+            StudyID AS patient_id, 
+            EncounterID AS encounter_id,
+            'RespRate' AS type,
+            'RespRate' AS code,
+            MeasureTXT AS value,
+            HoursSinceAdmit AS hours_since_admit
+        FROM read_csv('{vitals_resp_rate_file}');
+    """)
+    conn.sql(f"""
+        INSERT INTO vitals_raw BY NAME
+        SELECT 
+            StudyID AS patient_id, 
+            EncounterID AS encounter_id,
+            'SBP' AS type,
+            'SBP' AS code,
+            MeasureTXT AS value,
+            HoursSinceAdmit AS hours_since_admit
+        FROM read_csv('{vitals_sbp_file}');
+    """)
+    conn.sql(f"""
+        INSERT INTO vitals_raw BY NAME
+        SELECT 
+            StudyID AS patient_id, 
+            EncounterID AS encounter_id,
+            'SpO2' AS type,
+            'SpO2' AS code,
+            try_cast(MeasureTXT AS FLOAT) AS value,
+            HoursSinceAdmit AS hours_since_admit
+        FROM read_csv('{vitals_sp_o2_file}');
+    """)
+    conn.sql(f"""
+        INSERT INTO vitals_raw BY NAME
+        SELECT 
+            StudyID AS patient_id, 
+            EncounterID AS encounter_id,
+            'Temp' AS type,
+            'Temp' AS code,
+            MeasureTXT AS value,
+            HoursSinceAdmit AS hours_since_admit
+        FROM read_csv('{vitals_temp_file}');
+    """)
+    conn.sql("DROP TABLE IF EXISTS vitals_values;")
+    conn.sql("""
+        CREATE TABLE vitals_values AS
+        SELECT 
+            vitals_raw.patient_id,
+            vitals_raw.encounter_id, 
+            type,
+            code, 
+            ntile(CASE WHEN type = 'O2Device' THEN 1 ELSE 10 END) OVER (PARTITION BY type, code ORDER BY value) as value_group,
+            hours_since_admit,
+            (encounters.admitted + INTERVAL (vitals_raw.hours_since_admit::INTEGER) HOUR) AS measure_time,
+            extract(hour from encounters.discharged - measure_time) AS hours_to_discharge,
+            value
+        FROM vitals_raw
+            INNER JOIN encounters ON vitals_raw.patient_id = encounters.patient_id AND vitals_raw.encounter_id = encounters.encounter_id
+        WHERE measure_time BETWEEN encounters.admitted AND encounters.discharged
+    """)
+
+def create_vitals_values_vocab(conn: duckdb.DuckDBPyConnection):
+    conn.sql("""
+        INSERT INTO dynamic_data_vocab (type, description, code, value_group, lower_value, upper_value, encounters) 
+        SELECT type, code, code, value_group, min(value), max(value), COUNT(DISTINCT encounter_id) as qty
+        FROM vitals_values
+        GROUP BY type, code, value_group
+        ORDER BY type, code, value_group;
+    """)
+
+
+def create_dynamic_vitals_features(conn: duckdb.DuckDBPyConnection):
+    conn.sql("""
+        DROP TABLE IF EXISTS dynamic_vitals_data;
+        CREATE TABLE dynamic_vitals_data AS
+        SELECT patient_id, encounter_id, hours_since_admit::INTEGER AS period, min(dynamic_data_vocab.id) AS value
+        FROM vitals_values
+                INNER JOIN dynamic_data_vocab ON 
+                    vitals_values.type = dynamic_data_vocab.type AND
+                    vitals_values.code = dynamic_data_vocab.code AND 
+                    vitals_values.value_group = dynamic_data_vocab.value_group
+        GROUP BY patient_id, encounter_id, period, vitals_values.code;
+    """)
+
+def load_diagnoses(conn: duckdb.DuckDBPyConnection, diagnoses_file: str, data_path: str):
+    conn.sql(f"""
+        DROP TABLE IF EXISTS diagnoses_raw;
+        CREATE TABLE diagnoses_raw AS
+        SELECT 
+            StudyID AS patient_id,
+            EncounterID AS encounter_id,
+            HoursSinceAdmit AS hours_since_admit,
+            ICD10CD AS code
+        FROM read_csv('{diagnoses_file}');
+        
+        DROP TABLE IF EXISTS codes;
+        CREATE TABLE codes AS
+        FROM '{pathlib.Path(data_path)}/codes.parquet';
+        
+        DROP TABLE IF EXISTS diagnoses_values;
+        CREATE TABLE diagnoses_values AS
+        SELECT 
+            diagnoses_raw.patient_id, diagnoses_raw.encounter_id, code, hours_since_admit,
+            (encounters.admitted + INTERVAL (diagnoses_raw.hours_since_admit::INTEGER) HOUR) AS diagnoses_time,
+            extract(hour from encounters.discharged - diagnoses_time) AS hours_to_discharge
+        FROM diagnoses_raw
+            INNER JOIN encounters ON 
+                diagnoses_raw.patient_id = encounters.patient_id AND 
+                diagnoses_raw.encounter_id = encounters.encounter_id
+        WHERE diagnoses_time BETWEEN encounters.admitted AND encounters.discharged;
+    """)
+
+def create_diagnoses_values_vocab(conn: duckdb.DuckDBPyConnection, diagnoses_limit=0):
+    conn.sql(f"""
+        WITH data AS (
             SELECT 
-                study_id,
-                month,
-                array_agg(dynamic_data_feature_vocab.id ORDER BY id) AS data,
-                array_agg(1 ORDER BY id) AS values
-            FROM diagnoses
-                INNER JOIN dynamic_data_feature_vocab ON diagnoses.code_with_type = dynamic_data_feature_vocab.code and dynamic_data_feature_vocab.type = 'diagnoses'
-            GROUP BY study_id, month
-        ), proc AS (
-            SELECT 
-                study_id,
-                month,
-                array_agg(dynamic_data_feature_vocab.id ORDER BY id) AS data,
-                array_agg(1 ORDER BY id) AS values
-            FROM procedures
-                INNER JOIN dynamic_data_feature_vocab ON procedures.code_with_type = dynamic_data_feature_vocab.code and dynamic_data_feature_vocab.type = 'procedures'
-            GROUP BY study_id, month
-        ), lab_binary AS (
-            SELECT 
-                study_id,
-                month,
-                array_agg(dynamic_data_feature_vocab.id ORDER BY id) AS data,
-                array_agg(1 ORDER BY id) AS values
-            FROM labs
-                ASOF JOIN dynamic_data_feature_vocab ON 
-                    labs.code = dynamic_data_feature_vocab.code AND dynamic_data_feature_vocab.type = 'labs' AND
-                    labs.num_res >= dynamic_data_feature_vocab.lower_bound
-            WHERE dynamic_data_feature_vocab.text_res <> ''
-            GROUP BY study_id, month 
-        ), lab_values AS (
-            SELECT 
-                study_id,
-                month,
-                array_agg(dynamic_data_feature_vocab.id ORDER BY id) AS data,
-                array_agg(
-                    (labs.num_res - dynamic_data_feature_vocab.avg_value)/dynamic_data_feature_vocab.stddev
-                    ORDER BY id
-                ) AS values
-            FROM labs
-                ASOF JOIN dynamic_data_feature_vocab ON 
-                    labs.code = dynamic_data_feature_vocab.code AND dynamic_data_feature_vocab.type = 'labs' AND
-                    labs.num_res >= dynamic_data_feature_vocab.lower_bound
-            WHERE dynamic_data_feature_vocab.text_res = ''
-            GROUP BY study_id, month 
-        ), months AS (
-            SELECT study_id, unnest(generate_series(1,{months}))::INTEGER AS month
-            FROM subjects
-        ), dynamic AS (
-            SELECT months.study_id, array_agg(
-                    flatten([
-                        COALESCE(diag.data, []),
-                        COALESCE(proc.data, []),
-                        COALESCE(lab_binary.data, []),
-                        COALESCE(lab_values.data, [])
-                    ]) ORDER BY months.month
-                ) AS data,
-                array_agg(
-                    flatten([
-                        COALESCE(diag.values, []),
-                        COALESCE(proc.values, []),
-                        COALESCE(lab_binary.values, []),
-                        COALESCE(lab_values.values, [])
-                    ]) ORDER BY months.month
-                ) AS values,
-                array_agg(months.month ORDER BY months.month) AS months
-            FROM months
-                LEFT JOIN diag ON months.study_id = diag.study_id AND months.month = diag.month
-                LEFT JOIN proc ON months.study_id = proc.study_id AND months.month = proc.month
-                LEFT JOIN lab_binary ON months.study_id = lab_binary.study_id AND months.month = lab_binary.month
-                LEFT JOIN lab_values ON months.study_id = lab_values.study_id AND months.month = lab_values.month
-            GROUP BY months.study_id
+                diagnoses_values.code,COALESCE(codes.description, '') as description, 
+                COUNT(DISTINCT encounter_id) as encounters,
+                COUNT(DISTINCT patient_id) as patients
+            FROM diagnoses_values
+                LEFT JOIN codes ON 
+                    codes.type = 'ICD10' AND 
+                    diagnoses_values.code = codes.code
+            GROUP BY diagnoses_values.code, description
+        ), total_encounters AS (
+            SELECT COUNT(DISTINCT patient_id) as qty
+            FROM encounters
         )
+        INSERT INTO dynamic_data_vocab (type, description, code, value_group, lower_value, upper_value, encounters) 
+        SELECT 'diagnoses', description, code, 1, 0, 0, encounters
+        FROM data
+        WHERE patients::FLOAT / (SELECT qty FROM total_encounters LIMIT 1) >= {diagnoses_limit}; 
+    """)
+
+def create_diagnoses_features(conn: duckdb.DuckDBPyConnection):
+    conn.sql("""
+        DROP TABLE IF EXISTS dynamic_diagnoses_data;
+        CREATE TABLE dynamic_diagnoses_data AS
+        SELECT patient_id, encounter_id, hours_since_admit AS period, dynamic_data_vocab.id AS value
+        FROM diagnoses_values
+                INNER JOIN dynamic_data_vocab ON
+                    dynamic_data_vocab.type = 'diagnoses' AND
+                    diagnoses_values.code = dynamic_data_vocab.code
+        GROUP BY ALL;
+    """)
+
+def load_procedures(conn: duckdb.DuckDBPyConnection, procedures_file: str):
+    conn.sql(f"""
+        DROP TABLE IF EXISTS procedures_raw;
+        CREATE TABLE procedures_raw AS
+        SELECT 
+            EncounterID AS encounter_id,
+            HoursSinceAdmit_order AS hours_since_admit,
+            ProcedureCD AS code,
+            ANY_VALUE(ProcedureDSC) AS description
+        FROM read_csv('{procedures_file}')
+        GROUP BY EncounterID, HoursSinceAdmit_order, ProcedureCD;
+        
+        DROP TABLE IF EXISTS procedures_values;
+        CREATE TABLE procedures_values AS
+        SELECT 
+            encounters.patient_id, procedures_raw.encounter_id, code, description, hours_since_admit,
+            (encounters.admitted + INTERVAL (procedures_raw.hours_since_admit::INTEGER) HOUR) AS procedure_time,
+            extract(hour from encounters.discharged - procedure_time) AS hours_to_discharge
+        FROM procedures_raw
+            INNER JOIN encounters ON 
+                procedures_raw.encounter_id = encounters.encounter_id
+        WHERE procedure_time BETWEEN encounters.admitted AND encounters.discharged;
+    """)
+
+def create_procedures_values_vocab(conn: duckdb.DuckDBPyConnection, procedures_limit=0):
+    conn.sql(f"""
+        WITH data AS (
+            SELECT 
+                procedures_values.code,
+                COALESCE(procedures_values.description, '') as description, 
+                COUNT(DISTINCT encounter_id) as encounters,
+                COUNT(DISTINCT patient_id) as patients
+            FROM procedures_values
+            GROUP BY code, description
+        ), total_encounters AS (
+            SELECT COUNT(DISTINCT patient_id) as qty
+            FROM encounters
+        )
+        INSERT INTO dynamic_data_vocab (type, description, code, value_group, lower_value, upper_value, encounters) 
+        SELECT 'procedures', description, code, 1, 0, 0, encounters
+        FROM data
+        WHERE patients::FLOAT / (SELECT qty FROM total_encounters LIMIT 1) >= {procedures_limit};
+    """)
+
+def create_procedures_features(conn: duckdb.DuckDBPyConnection):
+    conn.sql("""
+        DROP TABLE IF EXISTS dynamic_procedures_data;
+        CREATE TABLE dynamic_procedures_data AS
+        SELECT patient_id, encounter_id, hours_since_admit AS period, dynamic_data_vocab.id AS value
+        FROM procedures_values
+                INNER JOIN dynamic_data_vocab ON
+                    dynamic_data_vocab.type = 'procedures' AND
+                    procedures_values.code = dynamic_data_vocab.code
+        GROUP BY ALL;
+    """)
+
+def load_medications(conn: duckdb.DuckDBPyConnection, medications_file: str):
+    conn.sql(f"""
+        DROP TABLE IF EXISTS medications_raw;
+        CREATE TABLE medications_raw AS
         SELECT
-            nextval('data_idx_seq') AS idx,
-            subjects.id, 
-            static.data AS static_data,
-            dynamic.data AS dynamic_data,
-            dynamic.values AS dynamic_values,
-            dynamic.months AS months
-        FROM subjects
-            INNER JOIN static ON subjects.study_id = static.study_id
-            INNER JOIN dynamic ON subjects.study_id = dynamic.study_id
+            StudyID AS patient_id,
+            EncounterID AS encounter_id,
+            HoursSinceAdmit AS hours_since_admit,
+            PharmaceuticalSubclassCD AS code,
+            ANY_VALUE(PharmaceuticalSubclassDSC) AS description
+        FROM read_csv('{medications_file}')
+        GROUP BY StudyID, EncounterID, HoursSinceAdmit, PharmaceuticalSubclassCD;
+        
+        DROP TABLE IF EXISTS medications_values;
+        CREATE TABLE medications_values AS
+        SELECT 
+            encounters.patient_id, medications_raw.encounter_id, code, description, hours_since_admit,
+            (encounters.admitted + INTERVAL (medications_raw.hours_since_admit::INTEGER) HOUR) AS procedure_time,
+            extract(hour from encounters.discharged - procedure_time) AS hours_to_discharge
+        FROM medications_raw
+            INNER JOIN encounters ON
+                medications_raw.patient_id = encounters.patient_id AND
+                medications_raw.encounter_id = encounters.encounter_id
+        WHERE procedure_time BETWEEN encounters.admitted AND encounters.discharged;
+    """)
+
+def create_medications_values_vocab(conn: duckdb.DuckDBPyConnection, medications_limit=0):
+    conn.sql(f"""
+        WITH data AS (
+            SELECT 
+                medications_values.code,
+                COALESCE(medications_values.description, '') as description, 
+                COUNT(DISTINCT encounter_id) as encounters,
+                COUNT(DISTINCT patient_id) as patients
+            FROM medications_values
+            GROUP BY code, description
+        ), total_encounters AS (
+            SELECT COUNT(DISTINCT patient_id) as qty
+            FROM encounters
+        )
+        INSERT INTO dynamic_data_vocab (type, description, code, value_group, lower_value, upper_value, encounters) 
+        SELECT 'medications', description, code, 1, 0, 0, encounters
+        FROM data
+        WHERE patients::FLOAT / (SELECT qty FROM total_encounters LIMIT 1) >= {medications_limit}; 
+    """)
+
+def create_medications_features(conn: duckdb.DuckDBPyConnection):
+    conn.sql("""
+        DROP TABLE IF EXISTS dynamic_medications_data;
+        CREATE TABLE dynamic_medications_data AS
+        SELECT patient_id, encounter_id, hours_since_admit AS period, dynamic_data_vocab.id AS value
+        FROM medications_values
+                INNER JOIN dynamic_data_vocab ON
+                    dynamic_data_vocab.type = 'medications' AND
+                    medications_values.code = dynamic_data_vocab.code
+        GROUP BY ALL;
+    """)
+
+def create_dynamic_features_arrays(conn: duckdb.DuckDBPyConnection):
+    conn.sql("""
+        DROP TABLE IF EXISTS dynamic_features;
+        CREATE TABLE dynamic_features AS
+        WITH data AS (
+            SELECT patient_id, encounter_id, period, value 
+            FROM dynamic_labs_data
+            UNION ALL
+            SELECT patient_id, encounter_id, period, value
+            FROM dynamic_vitals_data
+            UNION ALL
+            SELECT patient_id, encounter_id, period, value
+            FROM dynamic_diagnoses_data
+            UNION ALL
+            SELECT patient_id, encounter_id, period, value
+            FROM dynamic_procedures_data
+            UNION ALL
+            SELECT patient_id, encounter_id, period, value
+            FROM dynamic_medications_data
+        ), hourly_data AS (
+            SELECT patient_id, encounter_id, period, LIST(DISTINCT value ORDER BY value) AS features
+            FROM data
+            GROUP BY patient_id, encounter_id, period
+        )
+        SELECT patient_id, encounter_id, LIST(features ORDER BY period) AS features, LIST(DISTINCT period ORDER BY period) AS periods
+        FROM hourly_data
+        GROUP BY patient_id, encounter_id
+    """)
+
+def save_static_data_vocab(conn: duckdb.DuckDBPyConnection, output_path: str):
+    conn.query(
+        f"COPY static_data_vocab TO '{pathlib.Path(output_path) / 'static_data_vocab.parquet'}' (FORMAT PARQUET);")
+
+def save_dynamic_data_vocab(conn: duckdb.DuckDBPyConnection, output_path: str):
+    conn.query(
+        f"COPY dynamic_data_vocab TO '{pathlib.Path(output_path) / 'dynamic_data_vocab.parquet'}' (FORMAT PARQUET);")
+
+def save_data(conn: duckdb.DuckDBPyConnection, output_path: str):
+    conn.query(f"""
+                COPY (
+                    SELECT
+                        encounters.idx,
+                        static_features.features AS static_features,
+                        dynamic_features.features AS dynamic_features,
+                        dynamic_features.periods AS periods
+                    FROM encounters
+                            INNER JOIN static_features ON 
+                                encounters.patient_id = static_features.patient_id AND 
+                                encounters.encounter_id = static_features.encounter_id
+                            INNER JOIN dynamic_features ON
+                                encounters.patient_id = dynamic_features.patient_id AND 
+                                encounters.encounter_id = dynamic_features.encounter_id
+                ) TO '{pathlib.Path(output_path) / 'data.parquet'}' (FORMAT PARQUET);
+    """)
+
+def save_target(conn: duckdb.DuckDBPyConnection, output_path: str):
+    conn.query(f"""
+                COPY (
+                    SELECT 
+                        encounters.idx,
+                        inpatient.in_30 AS target
+                    FROM inpatient
+                        INNER JOIN encounters ON 
+                            inpatient.patient_id = encounters.patient_id AND 
+                            inpatient.encounter_id = encounters.encounter_id
+                ) TO '{pathlib.Path(output_path) / 'target.parquet'}' (FORMAT PARQUET);
     """)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Pre-process data for the dataset for the diabetes A1C1 level prediction task')
-    parser.add_argument('config', type=str, help='path to the configuration file')
+    parser.add_argument('--config', required=True, type=str, help='path to the configuration file')
     args = parser.parse_args()
     if args.config == ""  or not os.path.exists(args.config):
         print('Configuration file does not exist')
         sys.exit(1)
 
-    conf = process_config(args.config)
-    print('DataSet preprocess configuration:', conf)
-    process_data(conf)
+    dataset_config = load_dataset_config(args.config)
+    for idx, c in enumerate(dataset_config):
+        print(f"🛠 Processing dataset {idx + 1}/{len(dataset_config)} — output: {c.output_path}")
+        process_data(c)
