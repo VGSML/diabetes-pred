@@ -1,0 +1,20 @@
+datasets:
+  - data_path: /data/vgribanov/data/readm/
+    inpatient_file: Inpatient_Static_hosp11.txt
+    labs_file: Labs_hours.txt
+    vitals_dbp_file: Vitals_DBP_hours.txt
+    vitals_o2_device_file: Vitals_O2Device_hours.txt
+    o2_device_mapping_file: o2device_mapping.csv
+    vitals_pulse_file: Vitals_Pulse_hours.txt
+    vitals_resp_rate_file: Vitals_RespRate_hours.txt
+    vitals_sbp_file: Vitals_SBP_hours.txt
+    vitals_sp_o2_file: Vitals_SpO2_hours.txt
+    vitals_temp_file: Vitals_Temp_hours.txt
+    diagnoses_file: Diagnoses_hours.txt
+    procedures_file: Procedures_hours_unicode.txt
+    medications_file: Medications_hours_unicode.txt
+    diagnoses_limit: 0.01
+    procedures_limit: 0.01
+    labs_limit: 0.01
+    medications_limit: 0.01
+    output_path: /data/mpetkevich/readmissions/data/final_data/
