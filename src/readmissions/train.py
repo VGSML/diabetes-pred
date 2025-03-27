@@ -1,6 +1,7 @@
 import argparse
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torchmetrics import Accuracy, Precision, Recall, F1Score, AUROC
@@ -11,6 +12,49 @@ from dataset import DiabetesDataset
 import json
 import yaml
 import pathlib
+
+
+def collate_fn_dynamic_rightpad(batch):
+    # batch: List[Tuple[static_data, dynamic_data, target]]
+    static_list = []
+    dynamic_list = []
+    target_list = []
+
+    # 1) Find max dynamic sequence length in the batch
+    max_len = 0
+    for (static_data, dynamic_data, target) in batch:
+        seq_len = dynamic_data.shape[0]
+        if seq_len > max_len:
+            max_len = seq_len
+
+    # 2) Across all samples in the batch:
+    #   a) Create an additional column of ones [seq_len, 1]
+    #   b) Append this column to the dynamic tensor => [seq_len, num_feat + 1]
+    #   c) Pad the tensor on the right along the time dimension (axis 0)
+    for (static_data, dynamic_data, target) in batch:
+        static_list.append(static_data)
+        target_list.append(torch.tensor(target, dtype=torch.long))
+
+        seq_len, num_feat = dynamic_data.shape
+
+        # Create a column of ones [seq_len, 1]
+        ones_column = torch.ones(seq_len, 1, dtype=dynamic_data.dtype)
+
+        # Append the column to the dynamic tensor => [seq_len, num_feat + 1]
+        dynamic_aug = torch.cat([dynamic_data, ones_column], dim=1)
+
+        # Pad the tensor on the right along the time dimension (axis 0)
+        pad_size = max_len - seq_len
+        dynamic_pad = F.pad(dynamic_aug, (0, 0, 0, pad_size))
+
+        dynamic_list.append(dynamic_pad)
+
+    # 3) Stack the lists of tensors along the batch dimension
+    static_batch = torch.stack(static_list, dim=0) # => [B, static_dim]
+    dynamic_batch = torch.stack(dynamic_list, dim=0)  # => [B, max_len, num_feat+1]
+    target_batch = torch.stack(target_list, dim=0)    # => [B, ...]
+
+    return static_batch, dynamic_batch, target_batch
 
 class LightningModule(pl.LightningModule):
     def __init__(self, model, learning_rate=0.001, num_classes=2):
@@ -110,7 +154,7 @@ def train_ds(
         save_path=None,
     ):
     print(f"will run: {run_name}")
-    ds = DiabetesDataset(ds_path, sequence_length=36)
+    ds = DiabetesDataset(ds_path)
     if run_name is None:
         run_name = f"{pathlib.Path(ds_path).name}_{rnn_layers}_h_{rnn_hidden_dim}"
 
@@ -127,13 +171,13 @@ def train_ds(
     test_size = len(ds) - train_size - val_size
     train_dataset, val_dataset, test_dataset = random_split(ds, [train_size, val_size, test_size])
 
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=48)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=48)
-    test_dataloader = DataLoader(test_dataset, num_workers=48)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=collate_fn_dynamic_rightpad)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=2, collate_fn=collate_fn_dynamic_rightpad)
+    test_dataloader = DataLoader(test_dataset, num_workers=2, collate_fn=collate_fn_dynamic_rightpad)
 
     model = ReadmissionRNN(
-        static_feature_dim = ds.len_static_features,
-        dynamic_feature_dim=ds.len_dynamic_features,
+        static_feature_dim=ds.len_static_features,
+        dynamic_feature_dim=ds.len_dynamic_features + 1,
         num_layers=rnn_layers,
         hidden_dim=rnn_hidden_dim,
         use_attention=use_attention,
@@ -178,7 +222,7 @@ if __name__ == "__main__":
     parser.add_argument('--save', type=str, default=None, help='Path to save the trained model')
 
     args = parser.parse_args()
-    if args.ds_path is None and args.config is None:
+    if args.ds_path is None:
         print("Please provide either a dataset path or a configuration file.")
         exit(1)
 
