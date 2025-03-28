@@ -4,6 +4,7 @@ import yaml
 import argparse
 import os
 import sys
+import time
 
 class Config:
     def __init__(self,
@@ -73,7 +74,7 @@ def load_dataset_config(path: str):
                 diagnoses_limit=c['diagnoses_limit'],
                 procedures_limit=c['procedures_limit'],
                 labs_limit=c['labs_limit'],
-                medications_limit=c.get('medications_limit'),
+                medications_limit=c['medications_limit'],
                 db_path=c.get('db_path'),
                 output_path=c['output_path']
             ))
@@ -81,12 +82,15 @@ def load_dataset_config(path: str):
     return cc
 
 def process_data(conf: Config):
-    print('Processing data for:', vars(conf))
+    print("📦 Config parameters:")
+    for k, v in vars(conf).items():
+        print(f"  • {k}: {v}")
+
     db_path = conf.db_path if conf.db_path else ':memory:'
     conn = duckdb.connect(db_path)
     create_schema(conn)
 
-    print('🛠 Processing load_raw_inpatient_data')
+    print('🔧 Processing load_raw_inpatient_data')
     load_raw_inpatient_data(conn, conf.inpatient_file, 'raw_inpatient');
 
     create_static_data_vocab(conn)
@@ -94,16 +98,13 @@ def process_data(conf: Config):
     create_static_feature_array(conn)
     create_encounters_period_table(conn)
 
-    patients = file_rows(conn, conf.inpatient_file)
-    print('Patients rows count:', patients)
-
-    print('🛠 Processing labs')
+    print('🔧 Processing labs')
     load_labs(conn, conf.labs_file)
-    split_labs_values_into_groups(conn, patients * conf.labs_limit)
+    split_labs_values_into_groups(conn, conf.labs_limit)
     create_labs_values_vocab(conn)
     create_labs_features(conn)
 
-    print('🛠 Processing vitals')
+    print('🔧 Processing vitals')
     load_vitals(
         conn,
         conf.vitals_dbp_file,
@@ -118,42 +119,39 @@ def process_data(conf: Config):
     create_vitals_values_vocab(conn)
     create_dynamic_vitals_features(conn)
 
-    print('🛠 Processing diagnoses')
+    print('🔧 Processing diagnoses')
     load_diagnoses(conn, conf.diagnoses_file, conf.data_path)
-    create_diagnoses_values_vocab(conn, patients * conf.diagnoses_limit)
+    create_diagnoses_values_vocab(conn, conf.diagnoses_limit)
     create_diagnoses_features(conn)
 
-    print('🛠 Processing procedures')
+    print('🔧 Processing procedures')
     load_procedures(conn, conf.procedures_file)
-    create_procedures_values_vocab(conn, patients * conf.procedures_limit)
+    create_procedures_values_vocab(conn, conf.procedures_limit)
     create_procedures_features(conn)
 
-    print('🛠 Processing medications')
+    print('🔧 Processing medications')
     load_medications(conn, conf.medications_file)
-    create_medications_values_vocab(conn, patients * conf.medications_limit)
+    create_medications_values_vocab(conn, conf.medications_limit)
     create_medications_features(conn)
 
-    print('🛠 Processing create_dynamic_features_arrays')
+    print('🔧 Processing create_dynamic_features_arrays')
     create_dynamic_features_arrays(conn)
 
-    print('🛠 Save the processed data')
+    print('🔧 Save the processed data')
     pathlib.Path(conf.output_path).mkdir(parents=True, exist_ok=True)
 
-    print('🛠 Save vocabs')
+    print('🔧 Save vocabs')
     save_static_data_vocab(conn, conf.output_path)
     save_dynamic_data_vocab(conn, conf.output_path)
 
-    print('🛠 Save the processed data to parquet file')
+    print('🔧 Save the processed data to parquet file')
     save_data(conn, conf.output_path)
     save_target(conn, conf.output_path)
 
-    print('🛠 Finishing...')
+    print('🔧 Finishing...')
     conn.execute("VACUUM")
     conn.close()
-    print('🛠 DONE')
-
-def file_rows(conn: duckdb.DuckDBPyConnection, file_name: str):
-    return conn.sql(f"SELECT Count(*) FROM read_csv('{file_name}', delim='|', header=TRUE, ignore_errors=TRUE)").fetchone()[0]
+    print('🔧 DONE')
 
 def create_schema(conn: duckdb.DuckDBPyConnection):
     # static data vocab
@@ -418,7 +416,7 @@ def load_labs(conn: duckdb.DuckDBPyConnection, file_path: str):
     """)
 
 
-def split_labs_values_into_groups(conn: duckdb.DuckDBPyConnection, labs_limit=0):
+def split_labs_values_into_groups(conn: duckdb.DuckDBPyConnection, labs_limit: float = 1):
     conn.sql(f"""
         DROP TABLE IF EXISTS labs_values;
         CREATE TABLE labs_values AS
@@ -646,7 +644,7 @@ def load_diagnoses(conn: duckdb.DuckDBPyConnection, diagnoses_file: str, data_pa
         WHERE diagnoses_time BETWEEN encounters.admitted AND encounters.discharged;
     """)
 
-def create_diagnoses_values_vocab(conn: duckdb.DuckDBPyConnection, diagnoses_limit=0):
+def create_diagnoses_values_vocab(conn: duckdb.DuckDBPyConnection, diagnoses_limit: float = 1):
     conn.sql(f"""
         WITH data AS (
             SELECT 
@@ -704,7 +702,7 @@ def load_procedures(conn: duckdb.DuckDBPyConnection, procedures_file: str):
         WHERE procedure_time BETWEEN encounters.admitted AND encounters.discharged;
     """)
 
-def create_procedures_values_vocab(conn: duckdb.DuckDBPyConnection, procedures_limit=0):
+def create_procedures_values_vocab(conn: duckdb.DuckDBPyConnection, procedures_limit: float = 1):
     conn.sql(f"""
         WITH data AS (
             SELECT 
@@ -762,7 +760,7 @@ def load_medications(conn: duckdb.DuckDBPyConnection, medications_file: str):
         WHERE procedure_time BETWEEN encounters.admitted AND encounters.discharged;
     """)
 
-def create_medications_values_vocab(conn: duckdb.DuckDBPyConnection, medications_limit=0):
+def create_medications_values_vocab(conn: duckdb.DuckDBPyConnection, medications_limit: float = 1):
     conn.sql(f"""
         WITH data AS (
             SELECT 
@@ -832,37 +830,56 @@ def save_dynamic_data_vocab(conn: duckdb.DuckDBPyConnection, output_path: str):
         f"COPY dynamic_data_vocab TO '{pathlib.Path(output_path) / 'dynamic_data_vocab.parquet'}' (FORMAT PARQUET);")
 
 def save_data(conn: duckdb.DuckDBPyConnection, output_path: str):
-    conn.query(f"""
-                COPY (
-                    SELECT
-                        encounters.idx,
-                        static_features.features AS static_features,
-                        dynamic_features.features AS dynamic_features,
-                        dynamic_features.periods AS periods
-                    FROM encounters
-                            INNER JOIN static_features ON 
-                                encounters.patient_id = static_features.patient_id AND 
-                                encounters.encounter_id = static_features.encounter_id
-                            INNER JOIN dynamic_features ON
-                                encounters.patient_id = dynamic_features.patient_id AND 
-                                encounters.encounter_id = dynamic_features.encounter_id
-                ) TO '{pathlib.Path(output_path) / 'data.parquet'}' (FORMAT PARQUET);
+    conn.sql("""
+        DROP TABLE IF EXISTS data;
+        CREATE TABLE data AS
+        SELECT
+            encounters.idx as id,
+            row_number() OVER () AS idx,
+            static_features.features AS static_features,
+            dynamic_features.features AS dynamic_features,
+            dynamic_features.periods AS periods,
+            hour(encounters.discharged - encounters.admitted) +
+            day(encounters.discharged - encounters.admitted)*24 AS duration
+        FROM encounters
+                INNER JOIN static_features ON 
+                    encounters.patient_id = static_features.patient_id AND 
+                    encounters.encounter_id = static_features.encounter_id
+                INNER JOIN dynamic_features ON
+                    encounters.patient_id = dynamic_features.patient_id AND 
+                    encounters.encounter_id = dynamic_features.encounter_id
+        ORDER BY encounters.idx;
+    """)
+    conn.sql(f"""
+        COPY (
+            SELECT
+                data.idx,
+                static_features,
+                dynamic_features,
+                periods,
+                duration
+            FROM data
+        ) TO '{pathlib.Path(output_path) / 'data.parquet'}' (FORMAT parquet);
     """)
 
 def save_target(conn: duckdb.DuckDBPyConnection, output_path: str):
     conn.query(f"""
-                COPY (
-                    SELECT 
-                        encounters.idx,
-                        inpatient.in_30 AS target
-                    FROM inpatient
-                        INNER JOIN encounters ON 
-                            inpatient.patient_id = encounters.patient_id AND 
-                            inpatient.encounter_id = encounters.encounter_id
-                ) TO '{pathlib.Path(output_path) / 'target.parquet'}' (FORMAT PARQUET);
+        COPY (
+            SELECT 
+                data.idx,
+                inpatient.in_30 AS target
+            FROM encounters
+                INNER JOIN inpatient ON 
+                    inpatient.patient_id = encounters.patient_id AND 
+                    inpatient.encounter_id = encounters.encounter_id
+                INNER JOIN data ON 
+                        encounters.idx = data.id
+        ) TO '{pathlib.Path(output_path) / 'target.parquet'}' (FORMAT parquet);
     """)
 
 if __name__ == '__main__':
+    start = time.time()
+
     parser = argparse.ArgumentParser(description='Pre-process data for the dataset for the diabetes A1C1 level prediction task')
     parser.add_argument('--config', required=True, type=str, help='path to the configuration file')
     args = parser.parse_args()
@@ -872,5 +889,10 @@ if __name__ == '__main__':
 
     dataset_config = load_dataset_config(args.config)
     for idx, c in enumerate(dataset_config):
-        print(f"🛠 Processing dataset {idx + 1}/{len(dataset_config)} — output: {c.output_path}")
+        print(f"🔧 Processing dataset {idx + 1}/{len(dataset_config)} — output: {c.output_path}")
         process_data(c)
+
+    end = time.time()
+    duration = end - start
+    minutes, seconds = divmod(duration, 60)
+    print(f"⏱️ Script finished in {int(minutes)} min {seconds:.1f} sec")
