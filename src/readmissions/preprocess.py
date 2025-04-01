@@ -7,47 +7,42 @@ import sys
 import time
 
 class Config:
-    def __init__(self,
-                 data_path: str = '/data/vgribanov/data/readm/',
-                 inpatient_file: str = 'Inpatient_Static_hosp11.txt',
-                 labs_file: str = 'Labs_hours.txt',
-                 vitals_dbp_file: str = 'Vitals_DBP_hours.txt',
-                 vitals_o2_device_file: str = 'Vitals_O2Device_hours.txt',
-                 o2_device_mapping_file: str = 'o2device_mapping.csv',
-                 vitals_pulse_file: str = 'Vitals_Pulse_hours.txt',
-                 vitals_resp_rate_file: str = 'Vitals_RespRate_hours.txt',
-                 vitals_sbp_file: str = 'Vitals_SBP_hours.txt',
-                 vitals_sp_o2_file: str = 'Vitals_SpO2_hours.txt',
-                 vitals_temp_file: str = 'Vitals_Temp_hours.txt',
-                 diagnoses_file: str = 'Diagnoses_hours.txt',
-                 procedures_file: str = 'Procedures_hours_unicode.txt',
-                 medications_file: str = 'Medications_hours_unicode.txt',
-                 diagnoses_limit: float = 0.01,
-                 procedures_limit: float = 0.01,
-                 labs_limit: float = 0.01,
-                 medications_limit: float = 0.01,
-                 db_path: str = 'diabetes_pred/data/process.duckdb',
-                 output_path: str = 'diabetes_pred/data/processed/'):
-        self.data_path = data_path
-        self.inpatient_file = self.data_path + inpatient_file
-        self.labs_file = self.data_path + labs_file
-        self.vitals_dbp_file = self.data_path + vitals_dbp_file
-        self.vitals_o2_device_file = self.data_path + vitals_o2_device_file
-        self.o2_device_mapping_file = self.data_path + o2_device_mapping_file
-        self.vitals_pulse_file = self.data_path + vitals_pulse_file
-        self.vitals_resp_rate_file = self.data_path + vitals_resp_rate_file
-        self.vitals_sbp_file = self.data_path + vitals_sbp_file
-        self.vitals_sp_o2_file = self.data_path + vitals_sp_o2_file
-        self.vitals_temp_file = self.data_path + vitals_temp_file
-        self.diagnoses_file = self.data_path + diagnoses_file
-        self.procedures_file = self.data_path + procedures_file
-        self.medications_file = self.data_path + medications_file
-        self.diagnoses_limit = diagnoses_limit
-        self.procedures_limit = procedures_limit
-        self.labs_limit = labs_limit
-        self.medications_limit = medications_limit
-        self.db_path = db_path
-        self.output_path = output_path
+    def __init__(self, c: dict):
+        self.data_path = pathlib.Path(c['data_path'])
+        self.output_path = pathlib.Path(c['output_path'])
+        self.db_path = c.get('db_path')
+        self.aggregation_hours = c.get('aggregation_hours', 6)
+
+        # Files (required)
+        self.inpatient_file = self.data_path / c['inpatient_file']
+        self.labs_file = self.data_path / c['labs_file']
+        self.diagnoses_file = self.data_path / c['diagnoses_file']
+        self.procedures_file = self.data_path / c['procedures_file']
+        self.medications_file = self.data_path / c['medications_file']
+
+        # Limits
+        self.diagnoses_limit = c['diagnoses_limit']
+        self.procedures_limit = c['procedures_limit']
+        self.labs_limit = c['labs_limit']
+        self.medications_limit = c['medications_limit']
+
+        # Vitals (optional)
+        self.vitals_dbp_file = self._opt_path(c.get('vitals_dbp_file'))
+        self.vitals_o2_device_file = self._opt_path(c.get('vitals_o2_device_file'))
+        self.o2_device_mapping_file = self._opt_path(c.get('o2_device_mapping_file'))
+        self.vitals_pulse_file = self._opt_path(c.get('vitals_pulse_file'))
+        self.vitals_resp_rate_file = self._opt_path(c.get('vitals_resp_rate_file'))
+        self.vitals_sbp_file = self._opt_path(c.get('vitals_sbp_file'))
+        self.vitals_sp_o2_file = self._opt_path(c.get('vitals_sp_o2_file'))
+        self.vitals_temp_file = self._opt_path(c.get('vitals_temp_file'))
+
+        # Checking for file existence
+        for name, path in vars(self).items():
+            if isinstance(path, pathlib.Path) and not path.exists():
+                raise FileNotFoundError(f"❌ [Config] File not found: {name} → {path}")
+
+    def _opt_path(self, filename: str | None):
+        return self.data_path / filename if filename else None
 
 def load_dataset_config(path: str):
     cc = []
@@ -56,28 +51,7 @@ def load_dataset_config(path: str):
         conf = yaml.safe_load(f)
 
         for c in conf['datasets']:
-            cc.append(Config(
-                data_path=c['data_path'],
-                inpatient_file=c['inpatient_file'],
-                labs_file=c['labs_file'],
-                vitals_dbp_file=c['vitals_dbp_file'],
-                vitals_o2_device_file=c['vitals_o2_device_file'],
-                o2_device_mapping_file=c['o2_device_mapping_file'],
-                vitals_pulse_file=c['vitals_pulse_file'],
-                vitals_resp_rate_file=c['vitals_resp_rate_file'],
-                vitals_sbp_file=c['vitals_sbp_file'],
-                vitals_sp_o2_file=c['vitals_sp_o2_file'],
-                vitals_temp_file=c['vitals_temp_file'],
-                diagnoses_file=c['diagnoses_file'],
-                procedures_file=c['procedures_file'],
-                medications_file=c['medications_file'],
-                diagnoses_limit=c['diagnoses_limit'],
-                procedures_limit=c['procedures_limit'],
-                labs_limit=c['labs_limit'],
-                medications_limit=c['medications_limit'],
-                db_path=c.get('db_path'),
-                output_path=c['output_path']
-            ))
+            cc.append(Config(c))
 
     return cc
 
@@ -90,8 +64,8 @@ def process_data(conf: Config):
     conn = duckdb.connect(db_path)
     create_schema(conn)
 
-    print('🔧 Processing load_raw_inpatient_data')
-    load_raw_inpatient_data(conn, conf.inpatient_file, 'raw_inpatient');
+    print('🔧 Loading raw inpatient data')
+    load_raw_inpatient_data(conn, conf.inpatient_file)
 
     create_static_data_vocab(conn)
     create_deduplicated_inpatient_table(conn)
@@ -102,39 +76,39 @@ def process_data(conf: Config):
     load_labs(conn, conf.labs_file)
     split_labs_values_into_groups(conn, conf.labs_limit)
     create_labs_values_vocab(conn)
-    create_labs_features(conn)
+    create_labs_features(conn, conf.aggregation_hours)
 
     print('🔧 Processing vitals')
-    load_vitals(
-        conn,
-        conf.vitals_dbp_file,
-        conf.vitals_o2_device_file,
-        conf.o2_device_mapping_file,
-        conf.vitals_pulse_file,
-        conf.vitals_resp_rate_file,
-        conf.vitals_sbp_file,
-        conf.vitals_sp_o2_file,
-        conf.vitals_temp_file
-    )
+    vitals_paths = {
+        "vitals_dbp_file": conf.vitals_dbp_file,
+        "vitals_o2_device_file": conf.vitals_o2_device_file,
+        "o2_device_mapping_file": conf.o2_device_mapping_file,
+        "vitals_pulse_file": conf.vitals_pulse_file,
+        "vitals_resp_rate_file": conf.vitals_resp_rate_file,
+        "vitals_sbp_file": conf.vitals_sbp_file,
+        "vitals_sp_o2_file": conf.vitals_sp_o2_file,
+        "vitals_temp_file": conf.vitals_temp_file,
+    }
+    load_vitals(conn, vitals_paths)
     create_vitals_values_vocab(conn)
-    create_dynamic_vitals_features(conn)
+    create_dynamic_vitals_features(conn, conf.aggregation_hours)
 
     print('🔧 Processing diagnoses')
     load_diagnoses(conn, conf.diagnoses_file, conf.data_path)
     create_diagnoses_values_vocab(conn, conf.diagnoses_limit)
-    create_diagnoses_features(conn)
+    create_diagnoses_features(conn, conf.aggregation_hours)
 
     print('🔧 Processing procedures')
     load_procedures(conn, conf.procedures_file)
     create_procedures_values_vocab(conn, conf.procedures_limit)
-    create_procedures_features(conn)
+    create_procedures_features(conn, conf.aggregation_hours)
 
     print('🔧 Processing medications')
     load_medications(conn, conf.medications_file)
     create_medications_values_vocab(conn, conf.medications_limit)
-    create_medications_features(conn)
+    create_medications_features(conn, conf.aggregation_hours)
 
-    print('🔧 Processing create_dynamic_features_arrays')
+    print('🔧 Creating dynamic features arrays')
     create_dynamic_features_arrays(conn)
 
     print('🔧 Save the processed data')
@@ -149,7 +123,8 @@ def process_data(conf: Config):
     save_target(conn, conf.output_path)
 
     print('🔧 Finishing...')
-    conn.execute("VACUUM")
+    if db_path != ':memory:':
+        conn.execute("VACUUM")
     conn.close()
     print('🔧 DONE')
 
@@ -186,10 +161,10 @@ def create_schema(conn: duckdb.DuckDBPyConnection):
         );
     """)
 
-def load_raw_inpatient_data(conn: duckdb.DuckDBPyConnection, file_path: str, table_name: str):
-    conn.query(f"DROP TABLE IF EXISTS {table_name};")
+def load_raw_inpatient_data(conn: duckdb.DuckDBPyConnection, file_path: str):
+    conn.query(f"DROP TABLE IF EXISTS raw_inpatient;")
     conn.query(f"""
-        CREATE TABLE {table_name} AS
+        CREATE TABLE raw_inpatient AS
         WITH data AS (
             SELECT 
                 StudyID AS patient_id,
@@ -462,11 +437,14 @@ def create_labs_values_vocab(conn: duckdb.DuckDBPyConnection):
     """)
 
 
-def create_labs_features(conn: duckdb.DuckDBPyConnection):
-    conn.sql("""
+def create_labs_features(conn: duckdb.DuckDBPyConnection, aggregation_hours: int):
+    conn.sql(f"""
         DROP TABLE IF EXISTS dynamic_labs_data;
         CREATE TABLE dynamic_labs_data AS
-        SELECT patient_id, encounter_id, hours_since_admit AS period, min(dynamic_data_vocab.id) AS value
+        SELECT patient_id,
+               encounter_id,
+               FLOOR(hours_since_admit / {aggregation_hours}) * {aggregation_hours} AS period,
+               min(dynamic_data_vocab.id) AS value
         FROM labs_values
                 INNER JOIN dynamic_data_vocab ON 
                     dynamic_data_vocab.type = 'labs' AND
@@ -475,16 +453,7 @@ def create_labs_features(conn: duckdb.DuckDBPyConnection):
         GROUP BY patient_id, encounter_id, period, labs_values.code;
     """)
 
-def load_vitals(
-        conn: duckdb.DuckDBPyConnection,
-        vitals_dbp_file: str,
-        vitals_o2_device_file: str,
-        o2_device_mapping_file: str,
-        vitals_pulse_file: str,
-        vitals_resp_rate_file: str,
-        vitals_sbp_file: str,
-        vitals_sp_o2_file: str,
-        vitals_temp_file: str):
+def load_vitals(conn: duckdb.DuckDBPyConnection, vitals_paths: dict):
     conn.sql("DROP TABLE IF EXISTS vitals_raw;")
     conn.sql("""
         CREATE TABLE vitals_raw (
@@ -496,85 +465,44 @@ def load_vitals(
             hours_since_admit FLOAT
         );
     """)
-    conn.sql(f"""
-        INSERT INTO vitals_raw BY NAME
-        SELECT 
-            StudyID AS patient_id, 
-            EncounterID AS encounter_id,
-            'DBP' AS type,
-            'DBP' AS code,
-            MeasureTXT AS value,
-            HoursSinceAdmit AS hours_since_admit
-        FROM read_csv('{vitals_dbp_file}');
-    """)
-    conn.sql(f"""
-        INSERT INTO vitals_raw BY NAME
-        SELECT 
-            StudyID AS patient_id, 
-            EncounterID AS encounter_id,
-            'O2Device' AS type,
-            mapping.category AS code,
-            0 AS value,
-            HoursSinceAdmit AS hours_since_admit
-        FROM read_csv('{vitals_o2_device_file}') AS data
-        INNER JOIN read_csv('{o2_device_mapping_file}') AS mapping
-        ON data.MeasureTXT = mapping.description;
-    """)
-    conn.sql(f"""
-        INSERT INTO vitals_raw BY NAME
-        SELECT 
-            StudyID AS patient_id, 
-            EncounterID AS encounter_id,
-            'Pulse' AS type,
-            'Pulse' AS code,
-            MeasureTXT AS value,
-            HoursSinceAdmit AS hours_since_admit
-        FROM read_csv('{vitals_pulse_file}');
-    """)
-    conn.sql(f"""
-        INSERT INTO vitals_raw BY NAME
-        SELECT 
-            StudyID AS patient_id, 
-            EncounterID AS encounter_id,
-            'RespRate' AS type,
-            'RespRate' AS code,
-            MeasureTXT AS value,
-            HoursSinceAdmit AS hours_since_admit
-        FROM read_csv('{vitals_resp_rate_file}');
-    """)
-    conn.sql(f"""
-        INSERT INTO vitals_raw BY NAME
-        SELECT 
-            StudyID AS patient_id, 
-            EncounterID AS encounter_id,
-            'SBP' AS type,
-            'SBP' AS code,
-            MeasureTXT AS value,
-            HoursSinceAdmit AS hours_since_admit
-        FROM read_csv('{vitals_sbp_file}');
-    """)
-    conn.sql(f"""
-        INSERT INTO vitals_raw BY NAME
-        SELECT 
-            StudyID AS patient_id, 
-            EncounterID AS encounter_id,
-            'SpO2' AS type,
-            'SpO2' AS code,
-            try_cast(MeasureTXT AS FLOAT) AS value,
-            HoursSinceAdmit AS hours_since_admit
-        FROM read_csv('{vitals_sp_o2_file}');
-    """)
-    conn.sql(f"""
-        INSERT INTO vitals_raw BY NAME
-        SELECT 
-            StudyID AS patient_id, 
-            EncounterID AS encounter_id,
-            'Temp' AS type,
-            'Temp' AS code,
-            MeasureTXT AS value,
-            HoursSinceAdmit AS hours_since_admit
-        FROM read_csv('{vitals_temp_file}');
-    """)
+
+    if vitals_paths.get("vitals_o2_device_file") and vitals_paths.get("o2_device_mapping_file"):
+        conn.sql(f"""
+            INSERT INTO vitals_raw BY NAME
+            SELECT 
+                StudyID AS patient_id, 
+                EncounterID AS encounter_id,
+                'O2Device' AS type,
+                mapping.category AS code,
+                0 AS value,
+                HoursSinceAdmit AS hours_since_admit
+            FROM read_csv('{vitals_paths["vitals_o2_device_file"]}') AS data
+            INNER JOIN read_csv('{vitals_paths["o2_device_mapping_file"]}') AS mapping
+            ON data.MeasureTXT = mapping.description;
+        """)
+
+    for name, code in [
+        ("vitals_dbp_file", "DBP"),
+        ("vitals_pulse_file", "Pulse"),
+        ("vitals_resp_rate_file", "RespRate"),
+        ("vitals_sbp_file", "SBP"),
+        ("vitals_sp_o2_file", "SpO2"),
+        ("vitals_temp_file", "Temp"),
+    ]:
+        if vitals_paths.get(name):
+            value_expr = "try_cast(MeasureTXT AS FLOAT)" if code == "SpO2" else "MeasureTXT"
+            conn.sql(f"""
+                INSERT INTO vitals_raw BY NAME
+                SELECT 
+                    StudyID AS patient_id, 
+                    EncounterID AS encounter_id,
+                    '{code}' AS type,
+                    '{code}' AS code,
+                    {value_expr} AS value,
+                    HoursSinceAdmit AS hours_since_admit
+                FROM read_csv('{vitals_paths[name]}');
+            """)
+
     conn.sql("DROP TABLE IF EXISTS vitals_values;")
     conn.sql("""
         CREATE TABLE vitals_values AS
@@ -603,11 +531,14 @@ def create_vitals_values_vocab(conn: duckdb.DuckDBPyConnection):
     """)
 
 
-def create_dynamic_vitals_features(conn: duckdb.DuckDBPyConnection):
-    conn.sql("""
+def create_dynamic_vitals_features(conn: duckdb.DuckDBPyConnection, aggregation_hours: int):
+    conn.sql(f"""
         DROP TABLE IF EXISTS dynamic_vitals_data;
         CREATE TABLE dynamic_vitals_data AS
-        SELECT patient_id, encounter_id, hours_since_admit::INTEGER AS period, min(dynamic_data_vocab.id) AS value
+        SELECT patient_id,
+               encounter_id,
+               FLOOR(hours_since_admit / {aggregation_hours}) * {aggregation_hours} AS period,
+               min(dynamic_data_vocab.id) AS value
         FROM vitals_values
                 INNER JOIN dynamic_data_vocab ON 
                     vitals_values.type = dynamic_data_vocab.type AND
@@ -616,7 +547,7 @@ def create_dynamic_vitals_features(conn: duckdb.DuckDBPyConnection):
         GROUP BY patient_id, encounter_id, period, vitals_values.code;
     """)
 
-def load_diagnoses(conn: duckdb.DuckDBPyConnection, diagnoses_file: str, data_path: str):
+def load_diagnoses(conn: duckdb.DuckDBPyConnection, diagnoses_file: str, data_path: pathlib.Path):
     conn.sql(f"""
         DROP TABLE IF EXISTS diagnoses_raw;
         CREATE TABLE diagnoses_raw AS
@@ -629,7 +560,7 @@ def load_diagnoses(conn: duckdb.DuckDBPyConnection, diagnoses_file: str, data_pa
         
         DROP TABLE IF EXISTS codes;
         CREATE TABLE codes AS
-        FROM '{pathlib.Path(data_path)}/codes.parquet';
+        FROM '{data_path}/codes.parquet';
         
         DROP TABLE IF EXISTS diagnoses_values;
         CREATE TABLE diagnoses_values AS
@@ -666,11 +597,14 @@ def create_diagnoses_values_vocab(conn: duckdb.DuckDBPyConnection, diagnoses_lim
         WHERE patients::FLOAT / (SELECT qty FROM total_encounters LIMIT 1) >= {diagnoses_limit}; 
     """)
 
-def create_diagnoses_features(conn: duckdb.DuckDBPyConnection):
-    conn.sql("""
+def create_diagnoses_features(conn: duckdb.DuckDBPyConnection, aggregation_hours: int):
+    conn.sql(f"""
         DROP TABLE IF EXISTS dynamic_diagnoses_data;
         CREATE TABLE dynamic_diagnoses_data AS
-        SELECT patient_id, encounter_id, hours_since_admit AS period, dynamic_data_vocab.id AS value
+        SELECT patient_id,
+               encounter_id,
+               FLOOR(hours_since_admit / {aggregation_hours}) * {aggregation_hours} AS period,
+               dynamic_data_vocab.id AS value
         FROM diagnoses_values
                 INNER JOIN dynamic_data_vocab ON
                     dynamic_data_vocab.type = 'diagnoses' AND
@@ -722,11 +656,14 @@ def create_procedures_values_vocab(conn: duckdb.DuckDBPyConnection, procedures_l
         WHERE patients::FLOAT / (SELECT qty FROM total_encounters LIMIT 1) >= {procedures_limit};
     """)
 
-def create_procedures_features(conn: duckdb.DuckDBPyConnection):
-    conn.sql("""
+def create_procedures_features(conn: duckdb.DuckDBPyConnection, aggregation_hours: int):
+    conn.sql(f"""
         DROP TABLE IF EXISTS dynamic_procedures_data;
         CREATE TABLE dynamic_procedures_data AS
-        SELECT patient_id, encounter_id, hours_since_admit AS period, dynamic_data_vocab.id AS value
+        SELECT patient_id,
+               encounter_id,
+               FLOOR(hours_since_admit / {aggregation_hours}) * {aggregation_hours} AS period,
+               dynamic_data_vocab.id AS value
         FROM procedures_values
                 INNER JOIN dynamic_data_vocab ON
                     dynamic_data_vocab.type = 'procedures' AND
@@ -780,11 +717,14 @@ def create_medications_values_vocab(conn: duckdb.DuckDBPyConnection, medications
         WHERE patients::FLOAT / (SELECT qty FROM total_encounters LIMIT 1) >= {medications_limit}; 
     """)
 
-def create_medications_features(conn: duckdb.DuckDBPyConnection):
-    conn.sql("""
+def create_medications_features(conn: duckdb.DuckDBPyConnection, aggregation_hours: int):
+    conn.sql(f"""
         DROP TABLE IF EXISTS dynamic_medications_data;
         CREATE TABLE dynamic_medications_data AS
-        SELECT patient_id, encounter_id, hours_since_admit AS period, dynamic_data_vocab.id AS value
+        SELECT patient_id,
+               encounter_id,
+               FLOOR(hours_since_admit / {aggregation_hours}) * {aggregation_hours} AS period,
+               dynamic_data_vocab.id AS value
         FROM medications_values
                 INNER JOIN dynamic_data_vocab ON
                     dynamic_data_vocab.type = 'medications' AND
@@ -821,15 +761,15 @@ def create_dynamic_features_arrays(conn: duckdb.DuckDBPyConnection):
         GROUP BY patient_id, encounter_id
     """)
 
-def save_static_data_vocab(conn: duckdb.DuckDBPyConnection, output_path: str):
+def save_static_data_vocab(conn: duckdb.DuckDBPyConnection, output_path: pathlib.Path):
     conn.query(
-        f"COPY static_data_vocab TO '{pathlib.Path(output_path) / 'static_data_vocab.parquet'}' (FORMAT PARQUET);")
+        f"COPY static_data_vocab TO '{output_path / 'static_data_vocab.parquet'}' (FORMAT PARQUET);")
 
-def save_dynamic_data_vocab(conn: duckdb.DuckDBPyConnection, output_path: str):
+def save_dynamic_data_vocab(conn: duckdb.DuckDBPyConnection, output_path: pathlib.Path):
     conn.query(
-        f"COPY dynamic_data_vocab TO '{pathlib.Path(output_path) / 'dynamic_data_vocab.parquet'}' (FORMAT PARQUET);")
+        f"COPY dynamic_data_vocab TO '{output_path / 'dynamic_data_vocab.parquet'}' (FORMAT PARQUET);")
 
-def save_data(conn: duckdb.DuckDBPyConnection, output_path: str):
+def save_data(conn: duckdb.DuckDBPyConnection, output_path: pathlib.Path):
     conn.sql("""
         DROP TABLE IF EXISTS data;
         CREATE TABLE data AS
@@ -859,10 +799,10 @@ def save_data(conn: duckdb.DuckDBPyConnection, output_path: str):
                 periods,
                 duration
             FROM data
-        ) TO '{pathlib.Path(output_path) / 'data.parquet'}' (FORMAT parquet);
+        ) TO '{output_path / 'data.parquet'}' (FORMAT parquet);
     """)
 
-def save_target(conn: duckdb.DuckDBPyConnection, output_path: str):
+def save_target(conn: duckdb.DuckDBPyConnection, output_path: pathlib.Path):
     conn.query(f"""
         COPY (
             SELECT 
@@ -874,7 +814,7 @@ def save_target(conn: duckdb.DuckDBPyConnection, output_path: str):
                     inpatient.encounter_id = encounters.encounter_id
                 INNER JOIN data ON 
                         encounters.idx = data.id
-        ) TO '{pathlib.Path(output_path) / 'target.parquet'}' (FORMAT parquet);
+        ) TO '{output_path / 'target.parquet'}' (FORMAT parquet);
     """)
 
 if __name__ == '__main__':
@@ -887,10 +827,10 @@ if __name__ == '__main__':
         print('Configuration file does not exist')
         sys.exit(1)
 
-    dataset_config = load_dataset_config(args.config)
-    for idx, c in enumerate(dataset_config):
-        print(f"🔧 Processing dataset {idx + 1}/{len(dataset_config)} — output: {c.output_path}")
-        process_data(c)
+    configs = load_dataset_config(args.config)
+    for idx, config in enumerate(configs):
+        print(f"🔧 Processing dataset {idx + 1}/{len(configs)} — output: {config.output_path}")
+        process_data(config)
 
     end = time.time()
     duration = end - start

@@ -17,4 +17,5 @@ datasets:
     procedures_limit: 0.01
     labs_limit: 0.01
     medications_limit: 0.01
+    aggregation_hours: 6
     output_path: /data/mpetkevich/readmissions/data/final_data/
