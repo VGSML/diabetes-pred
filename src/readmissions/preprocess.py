@@ -119,7 +119,7 @@ def process_data(conf: Config):
     save_dynamic_data_vocab(conn, conf.output_path)
 
     print('🔧 Save the processed data to parquet file')
-    save_data(conn, conf.output_path)
+    save_data(conn, conf.aggregation_hours ,conf.output_path)
     save_target(conn, conf.output_path)
 
     print('🔧 Finishing...')
@@ -443,7 +443,7 @@ def create_labs_features(conn: duckdb.DuckDBPyConnection, aggregation_hours: int
         CREATE TABLE dynamic_labs_data AS
         SELECT patient_id,
                encounter_id,
-               FLOOR(hours_since_admit / {aggregation_hours}) * {aggregation_hours} AS period,
+               FLOOR(hours_since_admit / {aggregation_hours})::INT AS period,
                min(dynamic_data_vocab.id) AS value
         FROM labs_values
                 INNER JOIN dynamic_data_vocab ON 
@@ -537,7 +537,7 @@ def create_dynamic_vitals_features(conn: duckdb.DuckDBPyConnection, aggregation_
         CREATE TABLE dynamic_vitals_data AS
         SELECT patient_id,
                encounter_id,
-               FLOOR(hours_since_admit / {aggregation_hours}) * {aggregation_hours} AS period,
+               FLOOR(hours_since_admit / {aggregation_hours})::INT AS period,
                min(dynamic_data_vocab.id) AS value
         FROM vitals_values
                 INNER JOIN dynamic_data_vocab ON 
@@ -603,13 +603,13 @@ def create_diagnoses_features(conn: duckdb.DuckDBPyConnection, aggregation_hours
         CREATE TABLE dynamic_diagnoses_data AS
         SELECT patient_id,
                encounter_id,
-               FLOOR(hours_since_admit / {aggregation_hours}) * {aggregation_hours} AS period,
-               dynamic_data_vocab.id AS value
+               FLOOR(hours_since_admit / {aggregation_hours})::INT AS period,
+               min(dynamic_data_vocab.id) AS value
         FROM diagnoses_values
                 INNER JOIN dynamic_data_vocab ON
                     dynamic_data_vocab.type = 'diagnoses' AND
                     diagnoses_values.code = dynamic_data_vocab.code
-        GROUP BY ALL;
+        GROUP BY patient_id, encounter_id, period, diagnoses_values.code;
     """)
 
 def load_procedures(conn: duckdb.DuckDBPyConnection, procedures_file: str):
@@ -662,13 +662,13 @@ def create_procedures_features(conn: duckdb.DuckDBPyConnection, aggregation_hour
         CREATE TABLE dynamic_procedures_data AS
         SELECT patient_id,
                encounter_id,
-               FLOOR(hours_since_admit / {aggregation_hours}) * {aggregation_hours} AS period,
-               dynamic_data_vocab.id AS value
+               FLOOR(hours_since_admit / {aggregation_hours})::INT AS period,
+               min(dynamic_data_vocab.id) AS value
         FROM procedures_values
                 INNER JOIN dynamic_data_vocab ON
                     dynamic_data_vocab.type = 'procedures' AND
                     procedures_values.code = dynamic_data_vocab.code
-        GROUP BY ALL;
+        GROUP BY patient_id, encounter_id, period, procedures_values.code;
     """)
 
 def load_medications(conn: duckdb.DuckDBPyConnection, medications_file: str):
@@ -723,13 +723,13 @@ def create_medications_features(conn: duckdb.DuckDBPyConnection, aggregation_hou
         CREATE TABLE dynamic_medications_data AS
         SELECT patient_id,
                encounter_id,
-               FLOOR(hours_since_admit / {aggregation_hours}) * {aggregation_hours} AS period,
-               dynamic_data_vocab.id AS value
+               FLOOR(hours_since_admit / {aggregation_hours})::INT AS period,
+               min(dynamic_data_vocab.id) AS value
         FROM medications_values
                 INNER JOIN dynamic_data_vocab ON
                     dynamic_data_vocab.type = 'medications' AND
                     medications_values.code = dynamic_data_vocab.code
-        GROUP BY ALL;
+        GROUP BY patient_id, encounter_id, period, medications_values.code;
     """)
 
 def create_dynamic_features_arrays(conn: duckdb.DuckDBPyConnection):
@@ -769,8 +769,8 @@ def save_dynamic_data_vocab(conn: duckdb.DuckDBPyConnection, output_path: pathli
     conn.query(
         f"COPY dynamic_data_vocab TO '{output_path / 'dynamic_data_vocab.parquet'}' (FORMAT PARQUET);")
 
-def save_data(conn: duckdb.DuckDBPyConnection, output_path: pathlib.Path):
-    conn.sql("""
+def save_data(conn: duckdb.DuckDBPyConnection, aggregation_hours: int, output_path: pathlib.Path):
+    conn.sql(f"""
         DROP TABLE IF EXISTS data;
         CREATE TABLE data AS
         SELECT
@@ -779,8 +779,8 @@ def save_data(conn: duckdb.DuckDBPyConnection, output_path: pathlib.Path):
             static_features.features AS static_features,
             dynamic_features.features AS dynamic_features,
             dynamic_features.periods AS periods,
-            hour(encounters.discharged - encounters.admitted) +
-            day(encounters.discharged - encounters.admitted)*24 AS duration
+            FLOOR((hour(encounters.discharged - encounters.admitted) +
+            day(encounters.discharged - encounters.admitted)*24) / {aggregation_hours})::INT AS duration
         FROM encounters
                 INNER JOIN static_features ON 
                     encounters.patient_id = static_features.patient_id AND 

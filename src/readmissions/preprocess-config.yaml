@@ -18,4 +18,4 @@ datasets:
     labs_limit: 0.01
     medications_limit: 0.01
     aggregation_hours: 6
-    output_path: /data/mpetkevich/readmissions/data/final_data/
+    output_path: /data/vgribanov/data/readm/6_hours/
