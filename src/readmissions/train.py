@@ -119,23 +119,17 @@ class LightningModule(pl.LightningModule):
 
 def save_model_metadata(
         save_path, ds_path,run_name, batch_size, 
-        lr, num_epochs, use_attention, model_type="TCN",
-        # TCN parameters
-        tcn_layers=[],kernel_size=0, padding=0,
+        lr, num_epochs, use_attention,
         # RNN parameters
         rnn_layers=0, rnn_hidden_dim=0,
     ):
     data = {
         "dataset_path": ds_path,
-        "model_type": model_type,
         "run_name": run_name,
         "batch_size": batch_size,
         "use_attention": use_attention,
         "num_epochs": num_epochs,
         "lr": lr,
-        "tcn_layers": tcn_layers,
-        "kernel_size": kernel_size,
-        "padding": padding,
         "rnn_layers": rnn_layers,
         "rnn_hidden_dim": rnn_hidden_dim,
     }
@@ -200,6 +194,7 @@ def train_ds(
             save_path=save_path, 
             ds_path=ds_path, 
             run_name=run_name, 
+            use_attention=use_attention,
             batch_size=batch_size,
             lr=lr, 
             num_epochs=num_epochs,
