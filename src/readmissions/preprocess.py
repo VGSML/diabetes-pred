@@ -776,6 +776,7 @@ def save_data(conn: duckdb.DuckDBPyConnection, aggregation_hours: int, output_pa
         SELECT
             encounters.idx as id,
             row_number() OVER () AS idx,
+            encounters.patient_id AS patient_id,
             static_features.features AS static_features,
             dynamic_features.features AS dynamic_features,
             dynamic_features.periods AS periods,
@@ -794,6 +795,7 @@ def save_data(conn: duckdb.DuckDBPyConnection, aggregation_hours: int, output_pa
         COPY (
             SELECT
                 data.idx,
+                data.patient_id,
                 static_features,
                 dynamic_features,
                 periods,

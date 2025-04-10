@@ -20,6 +20,16 @@ class DiabetesDataset(Dataset):
         # calculate the number of samples and features
         self.len_samples = self.conn.execute("SELECT COUNT(*) FROM data").df().iloc[0, 0]
         self.len_static_features = self.conn.execute("SELECT max(id) FROM static_data_vocab").df().iloc[0, 0]
+
+        self.patient_to_indices = (
+            self.conn.execute("SELECT patient_id, idx FROM data")
+            .df()
+            .groupby("patient_id")["idx"]
+            .apply(list)
+            .to_dict()
+        )
+        self.patients = list(self.patient_to_indices.keys())
+
         self.len_dynamic_features = self.conn.execute("SELECT max(id) FROM dynamic_data_vocab").df().iloc[0, 0]
 
     def __len__(self):
@@ -43,3 +53,18 @@ class DiabetesDataset(Dataset):
                 dynamic_data[period][feature-1] = 1
 
         return static_data, dynamic_data, target[0]
+
+
+class PatientSubsetDataset(torch.utils.data.Dataset):
+    def __init__(self, base_dataset, selected_patients):
+        self.base_dataset = base_dataset
+        self.indices = []
+        for pid in selected_patients:
+            self.indices.extend(base_dataset.patient_to_indices[pid])
+        self.indices = [i - 1 for i in self.indices]  # dataset idx starts from 0
+
+    def __getitem__(self, index):
+        return self.base_dataset[self.indices[index]]
+
+    def __len__(self):
+        return len(self.indices)

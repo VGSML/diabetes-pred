@@ -8,11 +8,83 @@ from torchmetrics import Accuracy, Precision, Recall, F1Score, AUROC
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 from rnn import ReadmissionRNN
-from dataset import DiabetesDataset
+from dataset import DiabetesDataset, PatientSubsetDataset
 import json
-import yaml
 import pathlib
+import time
+import random
+import numpy as np
+from collections import defaultdict
 
+def stratified_patient_split(patient_to_indices, train_frac=0.7, val_frac=0.15, seed=42):
+    """
+    Splits patients into train/val/test sets so that each set contains
+    a balanced mix of patients with different hospitalization frequencies.
+
+    Args:
+        patient_to_indices (dict): {patient_id: [idx, idx, ...]}
+        train_frac (float): fraction of patients in train set
+        val_frac (float): fraction of patients in validation set
+        seed (int): random seed
+
+    Returns:
+        train_patients, val_patients, test_patients (sets of patient_ids)
+    """
+
+    random.seed(seed)
+    stratified_groups = defaultdict(list)
+
+    # Classify patients using quantiles
+    # Automatically determine frequency groups using quantiles
+    all_counts = [len(v) for v in patient_to_indices.values()]
+    q1, q2 = np.percentile(all_counts, [33, 66])
+
+    for pid, idx_list in patient_to_indices.items():
+        count = len(idx_list)
+        if count <= q1:
+            stratified_groups['low_freq'].append(pid)
+        elif count <= q2:
+            stratified_groups['mid_freq'].append(pid)
+        else:
+            stratified_groups['high_freq'].append(pid)
+
+    # Helper function to split patients within a group
+    def split_group(patients):
+        random.shuffle(patients)
+        n = len(patients)
+        n_train = int(n * train_frac)
+        n_val = int(n * val_frac)
+        train = patients[:n_train]
+        val = patients[n_train:n_train + n_val]
+        test = patients[n_train + n_val:]
+        return set(train), set(val), set(test)
+
+    train_patients, val_patients, test_patients = set(), set(), set()
+
+    print("🔍 Quantile thresholds for hospitalizations per patient:")
+    print(f"  - 33rd percentile (low_freq): {q1}")
+    print(f"  - 66th percentile (mid_freq): {q2}")
+    print()
+    print("📊 Group sizes before splitting:")
+    for group_name, group in stratified_groups.items():
+        total_encounters = sum(len(patient_to_indices[pid]) for pid in group)
+        print(f"  - {group_name}: {len(group)} patients, {total_encounters} encounters")
+    print()
+
+    # Split each group and combine the results
+    for group_name, group_patients in stratified_groups.items():
+        t, v, tst = split_group(group_patients)
+        train_patients |= t
+        val_patients |= v
+        test_patients |= tst
+
+    print("📦 Final split:")
+    for name, group in [('train', train_patients), ('val', val_patients), ('test', test_patients)]:
+        total_enc = sum(len(patient_to_indices[pid]) for pid in group)
+        print(f"  - {name}: {len(group)} patients, {total_enc} encounters")
+    print()
+
+    return train_patients, val_patients, test_patients
 
 def collate_fn_dynamic_rightpad(batch):
     # batch: List[Tuple[static_data, dynamic_data, target]]
@@ -159,11 +231,15 @@ def train_ds(
     )
     print(f"run_name: {run_name}, project: diabetes_ra_rnn")
 
-    # split dataset
-    train_size = int(0.7 * len(ds))  
-    val_size = int(0.15 * len(ds))
-    test_size = len(ds) - train_size - val_size
-    train_dataset, val_dataset, test_dataset = random_split(ds, [train_size, val_size, test_size])
+    # Stratified patient split based on hospitalization frequency
+    train_patients, val_patients, test_patients = stratified_patient_split(ds.patient_to_indices)
+
+    train_dataset = PatientSubsetDataset(ds, train_patients)
+    val_dataset = PatientSubsetDataset(ds, val_patients)
+    test_dataset = PatientSubsetDataset(ds, test_patients)
+
+    # print("🛑 Training skipped (early return after split).")
+    # return
 
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=collate_fn_dynamic_rightpad)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=2, collate_fn=collate_fn_dynamic_rightpad)
@@ -205,6 +281,8 @@ def list_of_ints(arg):
     return list(map(int, arg.split(',')))
 
 if __name__ == "__main__":
+    start = time.time()
+
     parser = argparse.ArgumentParser(description='Train and find hyperparameters for the TCN/RNN with attention.')
     parser.add_argument('--ds_path', type=str, default=None, help='Path to the dataset parquet files')
     parser.add_argument('--num_epochs', type=int, default=10, help='Number of epochs for training')
@@ -232,3 +310,8 @@ if __name__ == "__main__":
         rnn_hidden_dim=args.rnn_hidden_dim,
         save_path=args.save,
     )
+
+    end = time.time()
+    duration = end - start
+    minutes, seconds = divmod(duration, 60)
+    print(f"⏱️ Script finished in {int(minutes)} min {seconds:.1f} sec")
